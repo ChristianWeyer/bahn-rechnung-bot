@@ -17,6 +17,12 @@
         <string>/Users/christianweyer/Downloads/mc-abrechnungen</string>
     </array>
 
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
     <key>WorkingDirectory</key>
     <string>/Users/christianweyer/sources/bahn-rechnung-bot</string>
 

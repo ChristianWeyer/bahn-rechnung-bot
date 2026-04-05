@@ -1053,7 +1053,7 @@ def main():
 
             if not pdf_files:
                 print(f"⚠️  Keine PDF-Dateien im Ordner: {mc_path}")
-                sys.exit(1)
+                return
             mc_path = pdf_files[0]
             print(f"\n📂 Ordner: {args.mc_pdf}")
             print(f"   Neuestes PDF: {mc_path.name}")

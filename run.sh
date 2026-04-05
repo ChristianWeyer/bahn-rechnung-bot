@@ -25,5 +25,9 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
+# Kurze Verzögerung wenn per launchd/WatchPaths getriggert,
+# damit die Datei vollständig geschrieben ist.
+sleep 2
+
 source .venv/bin/activate
 python bahn_invoice_bot.py "$@"
