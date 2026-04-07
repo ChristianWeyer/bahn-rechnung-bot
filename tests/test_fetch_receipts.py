@@ -1,23 +1,8 @@
-"""
-Tests für fetch_receipts.py
-===========================
-Testet Keyword-Extraktion, Scoring und Outlook-Suche einzeln.
-
-Standalone:
-    pytest tests/test_fetch_receipts.py -v
-    pytest tests/test_fetch_receipts.py -v -k "test_search" --live  # mit echtem Graph API
-"""
+"""Tests für src/outlook.py — Keyword-Extraktion, Scoring, Outlook-Suche."""
 
 import pytest
-import sys
-from pathlib import Path
+from src.outlook import _get_search_keywords, _score_candidate
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from fetch_receipts import _get_search_keywords, _score_candidate
-
-
-# ─── Keyword-Extraktion ────────────────────────────────────
 
 class TestKeywords:
     def test_anthropic(self):
@@ -33,20 +18,16 @@ class TestKeywords:
         assert "amazon" in _get_search_keywords("Amazon.de*VD9CW3WR5")
 
     def test_nyt(self):
-        kw = _get_search_keywords("THE NEW YORK TIMES")
-        assert "nytimes" in kw
+        assert "nytimes" in _get_search_keywords("THE NEW YORK TIMES")
 
     def test_wsj_dj(self):
-        kw = _get_search_keywords("DJ*WSJ-EMEA")
-        assert "wsj" in kw
+        assert "wsj" in _get_search_keywords("DJ*WSJ-EMEA")
 
     def test_wsj_d_j(self):
-        kw = _get_search_keywords("D J")
-        assert "wsj" in kw
+        assert "wsj" in _get_search_keywords("D J")
 
     def test_paypal_fraenk(self):
-        kw = _get_search_keywords("PAYPAL *FRAENK")
-        assert "fraenk" in kw
+        assert "fraenk" in _get_search_keywords("PAYPAL *FRAENK")
 
     def test_figma(self):
         assert "figma" in _get_search_keywords("FIGMA")
@@ -59,8 +40,6 @@ class TestKeywords:
         assert len(kw) > 0
         assert kw[0] != ""
 
-
-# ─── Scoring ───────────────────────────────────────────────
 
 def _msg(subject, sender="test@example.com"):
     return {"subject": subject, "from": {"emailAddress": {"address": sender}}}
@@ -120,7 +99,7 @@ class TestScoring:
         assert score_billing > score_generic
 
 
-# ─── Live-Tests (nur mit --live Flag) ──────────────────────
+# ─── Live-Tests ────────────────────────────────────────────
 
 @pytest.fixture
 def live(request):
@@ -131,20 +110,19 @@ def live(request):
 @pytest.fixture
 def graph_token(live):
     from dotenv import load_dotenv
+    from pathlib import Path
     load_dotenv(Path(__file__).parent.parent / ".env")
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-    from expense_bot import get_graph_token
+    from src.auth import get_graph_token
     return get_graph_token()
 
 
 class TestLiveSearch:
     def test_find_belege_folder(self, graph_token):
-        from fetch_receipts import find_mail_folder
-        folder_id = find_mail_folder(graph_token, "Belege")
-        assert folder_id is not None
+        from src.outlook import find_mail_folder
+        assert find_mail_folder(graph_token, "Belege") is not None
 
     def test_search_anthropic(self, graph_token):
-        from fetch_receipts import find_mail_folder, search_receipts_for_entry
+        from src.outlook import find_mail_folder, search_receipts_for_entry
         folder_id = find_mail_folder(graph_token, "Belege")
         entry = {"vendor": "ANTHROPIC", "amount": 103.21, "date": "06.03.26"}
         candidates = search_receipts_for_entry(graph_token, [folder_id], entry)
@@ -152,8 +130,7 @@ class TestLiveSearch:
         assert candidates[0].get("_score", 0) >= 2
 
     def test_search_no_result(self, graph_token):
-        from fetch_receipts import find_mail_folder, search_receipts_for_entry
+        from src.outlook import find_mail_folder, search_receipts_for_entry
         folder_id = find_mail_folder(graph_token, "Belege")
         entry = {"vendor": "NONEXISTENT_VENDOR_XYZ", "amount": 99999.99, "date": "01.01.20"}
-        candidates = search_receipts_for_entry(graph_token, [folder_id], entry)
-        assert len(candidates) == 0
+        assert search_receipts_for_entry(graph_token, [folder_id], entry) == []

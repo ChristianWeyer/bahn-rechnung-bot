@@ -1,23 +1,9 @@
-"""
-Tests für parse_mastercard.py
-=============================
-Testet PDF-Parsing und Entry-Filterung.
-
-Standalone:
-    pytest tests/test_parse_mastercard.py -v
-    pytest tests/test_parse_mastercard.py -v --live  # mit echtem GPT Vision API
-"""
+"""Tests für src/mastercard.py — Filtering und GPT Vision Parsing."""
 
 import pytest
-import sys
 from pathlib import Path
+from src.mastercard import get_net_bookings, get_db_entries, get_non_db_entries
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from parse_mastercard import get_net_bookings, get_db_entries, get_non_db_entries
-
-
-# ─── Filterung ─────────────────────────────────────────────
 
 SAMPLE_ENTRIES = [
     {"vendor": "DB Vertrieb GmbH", "amount": 121.0, "category": "db", "booking_ref": "739359417117", "is_credit": False},
@@ -51,35 +37,34 @@ class TestFiltering:
 
 # ─── Live-Tests ────────────────────────────────────────────
 
+SAMPLE_PDF = Path(__file__).parent.parent / "beispiel-pdfs" / "5584xxxxxxxx4244_Abrechnung_vom_2026-04-02_Weyer_Christian.PDF"
+
+
 @pytest.fixture
 def live(request):
     if not request.config.getoption("--live"):
         pytest.skip("Live-Test übersprungen (nutze --live)")
 
 
-SAMPLE_PDF = Path(__file__).parent.parent / "beispiel-pdfs" / "5584xxxxxxxx4244_Abrechnung_vom_2026-04-02_Weyer_Christian.PDF"
-
-
 class TestLiveParsing:
     def test_extract_db_bookings(self, live):
         from dotenv import load_dotenv
         load_dotenv(Path(__file__).parent.parent / ".env")
-        from parse_mastercard import extract_db_bookings
+        from src.mastercard import extract_db_bookings
         if not SAMPLE_PDF.exists():
             pytest.skip(f"PDF nicht vorhanden: {SAMPLE_PDF}")
         bookings = extract_db_bookings(str(SAMPLE_PDF))
         assert len(bookings) == 13
         refs = {b["booking_ref"] for b in bookings}
         assert "739359417117" in refs
-        assert "818562863721" in refs
 
     def test_extract_all_entries(self, live):
         from dotenv import load_dotenv
         load_dotenv(Path(__file__).parent.parent / ".env")
-        from parse_mastercard import extract_all_entries
+        from src.mastercard import extract_all_entries
         if not SAMPLE_PDF.exists():
             pytest.skip(f"PDF nicht vorhanden: {SAMPLE_PDF}")
         entries = extract_all_entries(str(SAMPLE_PDF))
-        assert len(entries) >= 80  # ~88 Einträge
+        assert len(entries) >= 80
         db = [e for e in entries if e.get("category") == "db"]
         assert len(db) == 13

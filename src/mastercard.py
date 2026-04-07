@@ -5,13 +5,9 @@ Extrahiert Buchungseinträge aus Mastercard/BusinessCard-Abrechnungs-PDFs
 (qards/Sparkasse Format) mittels GPT Vision API.
 
 Nutzung:
-    from parse_mastercard import extract_db_bookings, extract_all_entries
+    from src.mastercard import extract_db_bookings, extract_all_entries
     bookings = extract_db_bookings("path/to/mastercard.pdf")
     all_entries = extract_all_entries("path/to/mastercard.pdf")
-
-    # Oder standalone:
-    python parse_mastercard.py mastercard.pdf
-    python parse_mastercard.py --all mastercard.pdf
 """
 
 import base64

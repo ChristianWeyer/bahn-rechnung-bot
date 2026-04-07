@@ -6,7 +6,7 @@ nach Rechnungs-Emails, die zu Mastercard-Abrechnungsposten passen,
 und lädt die PDF-Anhänge herunter.
 
 Nutzung:
-    from fetch_receipts import match_and_download_receipts
+    from src.outlook import match_and_download_receipts
     results = match_and_download_receipts(token, entries, download_dir)
 """
 

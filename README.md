@@ -110,12 +110,21 @@ Beim ersten Mal, wenn eine Email gesendet wird, erscheint im Terminal:
 
 ```
 bahn-rechnung-bot/
+├── expense_bot.py          # Orchestrator (CLI, Ablaufsteuerung)
+├── src/
+│   ├── config.py           # Konfiguration, 1Password CLI
+│   ├── timer.py            # Timer-Utility
+│   ├── history.py          # Download-Historie, Deduplizierung
+│   ├── auth.py             # Microsoft Graph OAuth (MSAL)
+│   ├── bahn.py             # bahn.de Login + Rechnungs-Download
+│   ├── mastercard.py       # Mastercard-PDF Parser (GPT Vision)
+│   ├── outlook.py          # Outlook Belegsuche per Graph API
+│   ├── amazon.py           # Amazon.de Rechnungs-Download
+│   └── mail.py             # Email-Versand via Graph API
+├── tests/                  # pytest Test-Suite
 ├── setup.sh                # Einmaliges Setup (venv + Dependencies)
 ├── run.sh                  # Start-Skript (aktiviert venv automatisch)
-├── expense_bot.py          # Hauptskript (Login, Download, Email via Graph API)
-├── parse_mastercard.py     # Mastercard-PDF Parser (GPT Vision)
-├── fetch_receipts.py       # Belegsuche in Outlook per Graph API
-├── requirements.txt        # Python-Abhängigkeiten mit Mindestversionen
+├── requirements.txt        # Python-Abhängigkeiten
 ├── env.template            # Vorlage für Konfiguration
 ├── .env                    # Deine Konfiguration (nicht committen!)
 ├── .token_cache.json       # OAuth Token-Cache (nicht committen!)

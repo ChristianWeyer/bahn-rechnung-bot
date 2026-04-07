@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 
-# Projekt-Root zum Python-Path
+# Projekt-Root zum Python-Path (damit src.* imports funktionieren)
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
