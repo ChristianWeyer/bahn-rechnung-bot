@@ -109,7 +109,9 @@ VENDOR_KEYWORDS = {
     "NEW YORK TIMES": ["nytimes"],
     "WSJ": ["wsj", "wall street journal"],
     "DJ*WSJ": ["wsj", "wall street journal"],
+    "D J": ["wsj", "wall street journal"],
     "AUDIBLE": ["audible"],
+    "PAYPAL *FRAENK": ["fraenk", "paypal"],
     "PAYPAL": ["paypal"],
     "FRAENK": ["fraenk"],
 }
@@ -143,8 +145,9 @@ def _parse_date(date_str: str) -> datetime | None:
 
 # Begriffe die auf eine Rechnung/Beleg hindeuten
 RECEIPT_TERMS = [
-    "invoice", "receipt", "rechnung", "beleg", "quittung", "billing", "payment",
-    "zahlung", "bestellt", "bestellung", "order", "subscription", "abonnement",
+    "invoice", "receipt", "rechnung", "beleg", "quittung", "billing",
+    "zahlung", "payment received", "payment for", "your payment",
+    "bestellt", "bestellung", "order", "subscription", "abonnement",
 ]
 
 
@@ -172,6 +175,20 @@ def _score_candidate(msg: dict, vendor_keyword: str, amount: float) -> int:
     if amount_str_comma in subject or amount_str_dot in subject:
         score += 2
 
+    # Bonus: Absender sieht nach Billing/Service aus
+    if any(p in sender for p in ["billing", "invoice", "receipt", "service@", "noreply@tax"]):
+        score += 2
+
+    # Malus: Newsletter-Absender oder typische Newsletter-Subjects
+    if any(p in sender for p in ["newsletter@", "noreply@news.", "substack.com", "radar", "briefing",
+                                   "noreply@medium.com", "breakingnews@", "access@interactive",
+                                   "morning.briefing", "bytebytego@", "infoservice.", "ix-inhalt@"]):
+        score -= 5
+    if any(p in subject for p in ["watchlist", "fn-watchlist", "update:", "events", "briefing", "10-point",
+                                   "laden ein", "breaking news", "i quit", "here's why", "complete guide",
+                                   "expertentalk", "live:"]):
+        score -= 5
+
     return score
 
 
@@ -197,7 +214,7 @@ def search_receipts_for_entry(token: str, folder_ids: list[str], entry: dict) ->
                 {
                     "$search": f'"{keyword}"',
                     "$select": "id,subject,receivedDateTime,from,hasAttachments",
-                    "$top": "25",
+                    "$top": "50",
                 },
             )
             for msg in data.get("value", []):
