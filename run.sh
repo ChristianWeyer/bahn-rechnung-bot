@@ -1,5 +1,5 @@
 #!/bin/bash
-# Startet den bahn.de Rechnungs-Bot im venv
+# Startet den Expense-Bot im venv
 #
 # Wenn CDP_URL und MC_PDF in .env gesetzt sind, reicht einfach:
 #   ./run.sh                                    # Alles aus .env
@@ -8,6 +8,7 @@
 # Oder mit expliziten Parametern:
 #   ./run.sh --mc-pdf abrechnung.pdf            # Bestimmtes PDF
 #   ./run.sh --mc-pdf ~/Downloads/              # Neuestes PDF im Ordner
+#   ./run.sh --fetch-receipts --mc-pdf abr.pdf  # + Belege aus Outlook
 #   ./run.sh --cdp --mc-pdf abrechnung.pdf      # CDP + PDF
 #   ./run.sh --cc chef@firma.de                 # Mit CC
 #   ./run.sh --headed                           # Browser sichtbar (Debugging)
@@ -30,4 +31,4 @@ fi
 sleep 2
 
 source .venv/bin/activate
-python bahn_invoice_bot.py "$@"
+python expense_bot.py "$@"

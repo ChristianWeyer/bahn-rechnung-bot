@@ -9,8 +9,9 @@
 __pycache__/
 *.pyc
 
-# Downloaded invoices & personal PDFs
+# Downloaded invoices, receipts & personal PDFs
 rechnungen/
+belege/
 beispiel-pdfs/
 *.PDF
 

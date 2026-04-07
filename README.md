@@ -28,7 +28,7 @@ Damit der Bot Emails über dein Microsoft-365-Konto senden kann, brauchst du ein
 7. Unter "Authentication":
    - Aktiviere "Allow public client flows" → **Yes**
 8. Unter "API Permissions":
-   - "Add a permission" → Microsoft Graph → Delegated → **Mail.Send**
+   - "Add a permission" → Microsoft Graph → Delegated → **Mail.Send** und **Mail.Read**
    - Falls nötig: Admin Consent erteilen lassen
 
 ### 3. .env ausfüllen
@@ -55,6 +55,9 @@ Trage ein:
 
 # Browser sichtbar starten (zum Debuggen)
 ./run.sh --mc-pdf /pfad/zur/abrechnung.pdf --headed --dry-run
+
+# DB-Rechnungen + alle Belege aus Outlook "Belege"-Ordner
+./run.sh --mc-pdf /pfad/zur/abrechnung.pdf --fetch-receipts
 
 # Eigenen Chrome nutzen (Session bleibt erhalten, kein Login nötig!)
 ./run.sh --cdp --mc-pdf /pfad/zur/abrechnung.pdf
@@ -109,13 +112,15 @@ Beim ersten Mal, wenn eine Email gesendet wird, erscheint im Terminal:
 bahn-rechnung-bot/
 ├── setup.sh                # Einmaliges Setup (venv + Dependencies)
 ├── run.sh                  # Start-Skript (aktiviert venv automatisch)
-├── bahn_invoice_bot.py     # Hauptskript (Login, Download, Email via Graph API)
-├── parse_mastercard.py     # Mastercard-PDF Parser
+├── expense_bot.py          # Hauptskript (Login, Download, Email via Graph API)
+├── parse_mastercard.py     # Mastercard-PDF Parser (GPT Vision)
+├── fetch_receipts.py       # Belegsuche in Outlook per Graph API
 ├── requirements.txt        # Python-Abhängigkeiten mit Mindestversionen
 ├── env.template            # Vorlage für Konfiguration
 ├── .env                    # Deine Konfiguration (nicht committen!)
 ├── .token_cache.json       # OAuth Token-Cache (nicht committen!)
-└── rechnungen/             # Heruntergeladene PDFs (wird automatisch erstellt)
+├── rechnungen/             # Heruntergeladene DB-Rechnungen
+└── belege/                 # Heruntergeladene Belege aus Outlook
 ```
 
 ## Hinweise

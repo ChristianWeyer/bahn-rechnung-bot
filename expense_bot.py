@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
 """
-bahn.de Rechnungs-Bot
-=====================
-Automatisiert den Download von Rechnungen von bahn.de
-und versendet sie per Email über Microsoft Graph API (OAuth).
-
-Voraussetzungen:
-    pip install playwright python-dotenv msal requests
-    playwright install chromium
+Expense Bot
+===========
+Automatisiert den Download von DB-Rechnungen von bahn.de,
+sucht Belege aus Outlook-Mailordnern, und versendet alles
+per Email über Microsoft Graph API (OAuth).
 
 Nutzung:
-    python bahn_invoice_bot.py              # Letzte Reise
-    python bahn_invoice_bot.py --all        # Alle neuen Rechnungen
-    python bahn_invoice_bot.py --dry-run    # Nur anzeigen, nicht senden
-    python bahn_invoice_bot.py --mc-pdf mastercard.pdf  # Buchungsnummern aus Mastercard-PDF
+    python expense_bot.py                               # Letzte Reise
+    python expense_bot.py --mc-pdf abrechnung.pdf       # DB-Rechnungen aus Mastercard-PDF
+    python expense_bot.py --mc-pdf abr.pdf --fetch-receipts  # + Belege aus Outlook
+    python expense_bot.py --dry-run                     # Nur anzeigen, nicht senden
 """
 
 import os
@@ -83,6 +80,7 @@ except ValueError:
     KEEP_DAYS = 30
 
 DOWNLOAD_DIR = Path(__file__).parent / "rechnungen"
+BELEGE_DIR = Path(__file__).parent / "belege"
 HISTORY_FILE = Path(__file__).parent / ".download_history.json"
 TOKEN_CACHE_FILE = Path(__file__).parent / ".token_cache.json"
 BROWSER_DATA_DIR = Path(__file__).parent / ".browser-data"
@@ -93,7 +91,7 @@ TRIPS_URL = "https://www.bahn.de/buchung/reisen"
 GRAPH_SEND_URL = "https://graph.microsoft.com/v1.0/me/sendMail"
 
 # OAuth Scopes
-SCOPES = ["Mail.Send"]
+SCOPES = ["Mail.Send", "Mail.Read"]
 
 # Wiederverwendete Selektoren
 DOWNLOAD_BTN_SELECTOR = (
@@ -1019,6 +1017,8 @@ def main():
                         default=CDP_URL,
                         help="An laufenden Chrome (Canary) anhängen (CDP). "
                              "Standard aus .env: CDP_URL")
+    parser.add_argument("--fetch-receipts", action="store_true",
+                        help="Auch Belege aus Outlook 'Belege'-Ordner suchen und herunterladen")
     args = parser.parse_args()
 
     timer = Timer()
@@ -1062,14 +1062,34 @@ def main():
 
         mc_pdf_name = mc_path.name
         print(f"\n💳 Lese Mastercard-PDF: {mc_path}")
-        bookings = extract_db_bookings(str(mc_path))
-        net = print_summary(bookings)
 
-        booking_refs = [b["booking_ref"] for b in net]
+        if args.fetch_receipts:
+            # Alle Einträge extrahieren (DB + sonstige)
+            from parse_mastercard import extract_all_entries, get_db_entries, get_non_db_entries
+            all_entries = extract_all_entries(str(mc_path))
+            db_entries = get_db_entries(all_entries)
+            non_db_entries = get_non_db_entries(all_entries)
+            net = print_summary(db_entries, "DB-Buchungen")
+            booking_refs = [b["booking_ref"] for b in net if b.get("booking_ref")]
+        else:
+            bookings = extract_db_bookings(str(mc_path))
+            non_db_entries = []
+            net = print_summary(bookings)
+            booking_refs = [b["booking_ref"] for b in net if b.get("booking_ref")]
+
         timer.lap("PDF-Parsing")
         if not booking_refs:
             print("⚠️  Keine DB-Buchungsnummern im PDF gefunden.")
             print("    Falle zurück auf 'Meine Reisen'-Modus ...")
+
+    # ── Belege aus Outlook holen (falls --fetch-receipts) ──
+    receipt_files = []
+    if args.fetch_receipts and non_db_entries:
+        from fetch_receipts import match_and_download_receipts
+        token = get_graph_token()
+        receipt_results = match_and_download_receipts(token, non_db_entries, BELEGE_DIR)
+        receipt_files = receipt_results.get("downloaded_files", [])
+        timer.lap(f"Belege ({len(receipt_files)} PDFs)")
 
     with sync_playwright() as p:
         use_cdp = False
@@ -1105,7 +1125,7 @@ def main():
 
                 files, failed = download_invoices(page, timer, download_all=args.all, booking_refs=booking_refs)
                 total = len(booking_refs) if booking_refs else None
-                send_email(files, timer, dry_run=args.dry_run, cc_email=args.cc,
+                send_email(files + receipt_files, timer, dry_run=args.dry_run, cc_email=args.cc,
                            mc_pdf_name=mc_pdf_name, failed_refs=failed, total_refs=total)
             finally:
                 page.close()  # Nur den Tab schließen, nicht Chrome selbst!
@@ -1138,7 +1158,7 @@ def main():
 
                 files, failed = download_invoices(page, timer, download_all=args.all, booking_refs=booking_refs)
                 total = len(booking_refs) if booking_refs else None
-                send_email(files, timer, dry_run=args.dry_run, cc_email=args.cc,
+                send_email(files + receipt_files, timer, dry_run=args.dry_run, cc_email=args.cc,
                            mc_pdf_name=mc_pdf_name, failed_refs=failed, total_refs=total)
             finally:
                 context.close()
