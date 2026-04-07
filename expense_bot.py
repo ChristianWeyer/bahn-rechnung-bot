@@ -60,12 +60,45 @@ class Timer:
         rest = secs % 60
         return f"{mins}m {rest:.1f}s"
 
+# ─── 1Password CLI Integration ──────────────────────────────────────
+import subprocess as _sp
+
+
+def _op_read(ref: str) -> str | None:
+    """Liest ein Secret aus 1Password CLI. Gibt None zurück wenn nicht verfügbar."""
+    try:
+        result = _sp.run(
+            ["op", "read", ref],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (FileNotFoundError, _sp.TimeoutExpired):
+        pass
+    return None
+
+
+def _get_secret(env_var: str, op_ref: str | None = None) -> str | None:
+    """Liest ein Secret: zuerst aus .env, dann aus 1Password als Fallback."""
+    val = os.environ.get(env_var, "").strip()
+    if val:
+        return val
+    if op_ref:
+        return _op_read(op_ref)
+    return None
+
+
 # ─── Konfiguration laden ────────────────────────────────────────────
 load_dotenv(Path(__file__).parent / ".env")
 
+# 1Password-Referenzen (konfigurierbar in .env)
+OP_BAHN = os.environ.get("OP_BAHN_PASSWORD", "").strip() or None
+OP_AMAZON = os.environ.get("OP_AMAZON_PASSWORD", "").strip() or None
+
 # Pflichtfelder werden erst in main() validiert, damit das Modul importierbar bleibt.
-BAHN_EMAIL = os.environ.get("BAHN_EMAIL")
-BAHN_PASSWORD = os.environ.get("BAHN_PASSWORD")
+BAHN_EMAIL = _get_secret("BAHN_EMAIL",
+    os.environ.get("OP_BAHN_EMAIL", "").strip() or "op://Private/Bahn/username")
+BAHN_PASSWORD = _get_secret("BAHN_PASSWORD", OP_BAHN)
 RECIPIENT_EMAIL = os.environ.get("RECIPIENT_EMAIL")
 
 # Microsoft Graph / OAuth
@@ -74,6 +107,9 @@ AZURE_TENANT_ID = os.environ.get("AZURE_TENANT_ID", "common")
 CC_EMAIL = os.environ.get("CC_EMAIL", "").strip() or None
 CDP_URL = os.environ.get("CDP_URL", "").strip() or None
 MC_PDF = os.environ.get("MC_PDF", "").strip() or None
+AMAZON_EMAIL = _get_secret("AMAZON_EMAIL",
+    os.environ.get("OP_AMAZON_EMAIL", "").strip() or "op://Private/Amazon - Thinktecture/email")
+AMAZON_PASSWORD = _get_secret("AMAZON_PASSWORD", OP_AMAZON)
 try:
     KEEP_DAYS = int(os.environ.get("KEEP_DAYS", "30"))
 except ValueError:
@@ -1057,6 +1093,8 @@ def main():
                              "Standard aus .env: CDP_URL")
     parser.add_argument("--fetch-receipts", action="store_true",
                         help="Auch Belege aus Outlook 'Belege'-Ordner suchen und herunterladen")
+    parser.add_argument("--fetch-amazon", action="store_true",
+                        help="Amazon.de Rechnungen per Playwright herunterladen")
     args = parser.parse_args()
 
     timer = Timer()
@@ -1167,6 +1205,18 @@ def main():
                     return
 
                 files, failed = download_invoices(page, timer, download_all=args.all, booking_refs=booking_refs)
+
+                # Amazon.de Rechnungen herunterladen
+                if args.fetch_amazon and AMAZON_EMAIL and AMAZON_PASSWORD and unmatched_entries:
+                    from fetch_amazon import download_amazon_invoices
+                    amazon_page = context.new_page()
+                    amazon_files = download_amazon_invoices(
+                        amazon_page, unmatched_entries, BELEGE_DIR, AMAZON_EMAIL, AMAZON_PASSWORD)
+                    receipt_files.extend(amazon_files)
+                    amazon_page.close()
+                    if amazon_files:
+                        timer.lap(f"Amazon ({len(amazon_files)} Rechnungen)")
+
                 total = len(booking_refs) if booking_refs else None
                 send_email(files + receipt_files, timer, dry_run=args.dry_run, cc_email=args.cc,
                            mc_pdf_name=mc_pdf_name, failed_refs=failed, total_refs=total,
@@ -1201,6 +1251,18 @@ def main():
                     return
 
                 files, failed = download_invoices(page, timer, download_all=args.all, booking_refs=booking_refs)
+
+                # Amazon.de Rechnungen herunterladen
+                if args.fetch_amazon and AMAZON_EMAIL and AMAZON_PASSWORD and unmatched_entries:
+                    from fetch_amazon import download_amazon_invoices
+                    amazon_page = context.new_page()
+                    amazon_files = download_amazon_invoices(
+                        amazon_page, unmatched_entries, BELEGE_DIR, AMAZON_EMAIL, AMAZON_PASSWORD)
+                    receipt_files.extend(amazon_files)
+                    amazon_page.close()
+                    if amazon_files:
+                        timer.lap(f"Amazon ({len(amazon_files)} Rechnungen)")
+
                 total = len(booking_refs) if booking_refs else None
                 send_email(files + receipt_files, timer, dry_run=args.dry_run, cc_email=args.cc,
                            mc_pdf_name=mc_pdf_name, failed_refs=failed, total_refs=total,
