@@ -112,16 +112,22 @@ def _extract_invoices(page, config: dict) -> list[dict]:
         for field_name, field_config in fields.items():
             try:
                 if isinstance(field_config, str):
-                    # Einfacher Selector
                     invoice[field_name] = el.locator(field_config).first.text_content().strip()
                 elif isinstance(field_config, dict):
                     sub_sel = field_config.get("selector", "")
                     attr = field_config.get("attribute")
-                    sub_el = el.locator(sub_sel).first
-                    if attr:
-                        invoice[field_name] = sub_el.get_attribute(attr) or ""
+                    if sub_sel == "self":
+                        # "self" = das gematchte Element selbst
+                        if attr:
+                            invoice[field_name] = el.get_attribute(attr) or ""
+                        else:
+                            invoice[field_name] = (el.text_content() or "").strip()
                     else:
-                        invoice[field_name] = (sub_el.text_content() or "").strip()
+                        sub_el = el.locator(sub_sel).first
+                        if attr:
+                            invoice[field_name] = sub_el.get_attribute(attr) or ""
+                        else:
+                            invoice[field_name] = (sub_el.text_content() or "").strip()
             except Exception:
                 invoice[field_name] = ""
 
