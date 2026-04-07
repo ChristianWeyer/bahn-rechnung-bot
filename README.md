@@ -1,15 +1,18 @@
-# bahn.de Rechnungs-Bot
+# Expense Bot
 
-Automatisiert den Download von DB-Rechnungen von bahn.de und versendet sie per Email.
-Kann Auftragsnummern direkt aus Mastercard/BusinessCard-Abrechnungs-PDFs extrahieren.
-Email-Versand läuft über Microsoft Graph API mit OAuth (kein SMTP-Passwort nötig).
+Automatisiert die Beleg-Sammlung aus Mastercard/BusinessCard-Abrechnungen:
+- **DB-Rechnungen** von bahn.de per Playwright
+- **Belege aus Outlook** (Ordner "Belege" + "Archiv") per Graph API
+- **Amazon-Rechnungen** von amazon.de per Playwright
+- **MC-PDF Parsing** via GPT Vision (digital + gescannt)
+- **Email-Versand** aller gesammelten Belege per Graph API (OAuth)
 
 ## Setup (einmalig)
 
 ### 1. Skript-Setup
 
 ```bash
-cd bahn-rechnung-bot
+cd expense-bot
 ./setup.sh
 ```
 
@@ -21,7 +24,7 @@ Damit der Bot Emails über dein Microsoft-365-Konto senden kann, brauchst du ein
 
 1. Gehe zu [Azure Portal → App Registrations](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade)
 2. Klicke "New registration"
-3. Name: z.B. `bahn-rechnung-bot`
+3. Name: z.B. `expense-bot`
 4. Supported account types: "Accounts in this organizational directory only" (Single Tenant) oder "Accounts in any organizational directory" (Multi-Tenant)
 5. Redirect URI: leer lassen (nicht nötig für Device Code Flow)
 6. Nach der Erstellung: kopiere die **Application (client) ID** und **Directory (tenant) ID**
@@ -109,7 +112,7 @@ Beim ersten Mal, wenn eine Email gesendet wird, erscheint im Terminal:
 ## Dateien
 
 ```
-bahn-rechnung-bot/
+expense-bot/
 ├── expense_bot.py          # Orchestrator (CLI, Ablaufsteuerung)
 ├── src/
 │   ├── config.py           # Konfiguration, 1Password CLI
