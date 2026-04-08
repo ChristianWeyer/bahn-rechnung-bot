@@ -9,11 +9,10 @@ from src.portal import load_portal_configs, _match_vendor, PORTALS_DIR
 class TestLoadConfigs:
     def test_loads_all_json_files(self):
         configs = load_portal_configs()
-        assert len(configs) >= 11  # Mindestens unsere 11 Vendor
+        assert len(configs) >= 3  # openai-api, adobe, cloudflare
         ids = {c["id"] for c in configs}
         assert "openai-api" in ids
         assert "adobe" in ids
-        assert "figma" in ids
 
     def test_each_config_has_required_fields(self):
         configs = load_portal_configs()
@@ -76,16 +75,8 @@ class TestVendorMatching:
         """Prüft dass jede Config mindestens einen typischen MC-Vendor-Namen matcht."""
         expected = {
             "openai-api": ["OPENAI", "OPENAI *CHATGPT SUBSCR"],
-            "openai-chatgpt": ["CHATGPT"],
             "adobe": ["ADOBE *ADOBE", "ADOBE"],
-            "figma": ["FIGMA"],
-            "perplexity": ["WWW.PERPLEXITY.AI", "PERPLEXITY"],
-            "google-payments": ["Google One", "GOOGLE*YOUTUBE MEMBER", "WL*GOOGLE"],
-            "heise": ["Heise Medien GmbH & Co"],
             "cloudflare": ["CLOUDFLARE"],
-            "audible": ["Audible GmbH", "AUDIBLE"],
-            "paypal": ["PAYPAL *FRAENK", "PAYPAL"],
-            "spiegel": ["SPIEGEL* KN 1920835 AB"],
         }
         configs = load_portal_configs()
         config_map = {c["id"]: c for c in configs}

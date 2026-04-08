@@ -64,6 +64,10 @@ try:
 except ValueError:
     KEEP_DAYS = 30
 
+# Vendor-spezifische Config (ausgelagert statt hardcoded)
+FIGMA_TEAM_ID = os.environ.get("FIGMA_TEAM_ID", "").strip() or None
+OWN_EMAIL_DOMAIN = os.environ.get("OWN_EMAIL_DOMAIN", "thinktecture.com").strip()
+
 # ─── Pfade ──────────────────────────────────────────────────
 
 ROOT_DIR = Path(__file__).parent.parent

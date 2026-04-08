@@ -129,10 +129,18 @@ def download_amazon_invoices(
     if "ap/signin" in page.url or "ap/cvf" in page.url:
         if not _login_amazon(page, email, password):
             return []
+        # Nach 2FA: Bestellseite explizit neu laden
         page.goto(ORDERS_URL, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(5000)
 
     orders = _collect_orders(page)
+
+    # Falls 0 Bestellungen: Seite nochmal laden (Session-Refresh nach 2FA)
+    if not orders:
+        page.reload(wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_timeout(5000)
+        orders = _collect_orders(page)
+
     print(f"  📋 {len(orders)} Bestellungen gefunden")
 
     if not orders:

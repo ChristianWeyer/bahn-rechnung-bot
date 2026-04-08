@@ -158,10 +158,14 @@ def _download_invoice_pdf(page, invoice: dict, config: dict, download_dir: Path,
             invoice_page.wait_for_timeout(5000)
 
             # "Download invoice" Button klicken
+            # Invoice bevorzugen, Receipt nur als Fallback
             dl_btn = invoice_page.locator(
-                'a:has-text("Download invoice"), a:has-text("Download receipt"), '
-                'button:has-text("Download invoice"), button:has-text("Download receipt")'
+                'a:has-text("Download invoice"), button:has-text("Download invoice")'
             )
+            if dl_btn.count() == 0:
+                dl_btn = invoice_page.locator(
+                    'a:has-text("Download receipt"), button:has-text("Download receipt")'
+                )
             if dl_btn.count() > 0:
                 with invoice_page.expect_download(timeout=15000) as dl_info:
                     dl_btn.first.click()
@@ -288,7 +292,18 @@ def download_portal_invoices(
             continue
 
         page.goto(billing_url, wait_until="domcontentloaded", timeout=30000)
-        page.wait_for_timeout(5000)
+
+        # Warten bis Invoice-Links sichtbar sind (SPA-Content)
+        invoices_config = config.get("invoices", {})
+        selector = invoices_config.get("selector", "")
+        if selector:
+            try:
+                page.wait_for_selector(selector, timeout=30000)
+                page.wait_for_timeout(2000)
+            except Exception:
+                page.wait_for_timeout(10000)  # Fallback: feste Wartezeit
+        else:
+            page.wait_for_timeout(10000)
 
         # Invoices extrahieren
         invoices = _extract_invoices(page, config)

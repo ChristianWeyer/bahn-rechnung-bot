@@ -19,7 +19,7 @@ from pathlib import Path
 import requests
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
-DATE_TOLERANCE = int(os.environ.get("BELEGE_DATE_TOLERANCE", "7"))
+DATE_TOLERANCE = int(os.environ.get("BELEGE_DATE_TOLERANCE", "35"))
 BELEGE_FOLDER = os.environ.get("BELEGE_FOLDER", "Belege")
 
 
@@ -96,6 +96,7 @@ VENDOR_KEYWORDS = {
     "TAILSCALE": ["tailscale"],
     "PADDLE.NET": ["paddle"],
     "NGROK": ["ngrok"],
+    "NOUNPROJECT": ["noun project"],
     "HUGGINGFACE": ["huggingface", "hugging face"],
     "LANGCHAIN": ["langchain", "langsmith"],
     "LANGFUSE": ["langfuse"],
@@ -105,7 +106,7 @@ VENDOR_KEYWORDS = {
     "ELEVENLABS": ["elevenlabs"],
     "WINDSURF": ["windsurf", "exafunction"],
     "PERPLEXITY": ["perplexity"],
-    "CLAUDE.AI": ["claude"],
+    "CLAUDE.AI": ["anthropic"],
     "NEW YORK TIMES": ["nytimes"],
     "WSJ": ["wsj", "wall street journal"],
     "DJ*WSJ": ["wsj", "wall street journal"],
@@ -114,6 +115,9 @@ VENDOR_KEYWORDS = {
     "PAYPAL *FRAENK": ["fraenk", "paypal"],
     "PAYPAL": ["paypal"],
     "FRAENK": ["fraenk"],
+    "MOL*OBJECTIVE": ["objective development", "obdev"],
+    "VACHETE": ["wachete"],
+    "X CORP": ["receipt from x", "x premium", "twitter"],
 }
 
 
@@ -178,6 +182,11 @@ def _score_candidate(msg: dict, vendor_keyword: str, amount: float) -> int:
     # Bonus: Absender sieht nach Billing/Service aus
     if any(p in sender for p in ["billing", "invoice", "receipt", "service@", "noreply@tax"]):
         score += 2
+
+    # Malus: eigene Emails (Bot-generiert)
+    from src.config import OWN_EMAIL_DOMAIN
+    if OWN_EMAIL_DOMAIN and OWN_EMAIL_DOMAIN.lower() in sender:
+        score -= 10
 
     # Malus: Newsletter-Absender oder typische Newsletter-Subjects
     if any(p in sender for p in ["newsletter@", "noreply@news.", "substack.com", "radar", "briefing",
@@ -289,31 +298,48 @@ def download_attachments(token: str, message_id: str, download_dir: Path, prefix
         token,
     )
 
-    downloaded = []
+    # PDFs sammeln — Invoices bevorzugen, Receipts nur wenn keine Invoice vorhanden
+    import base64
+    invoices = []
+    receipts = []
     for att in data.get("value", []):
         name = att.get("name", "")
         content_type = att.get("contentType", "")
         size = att.get("size", 0)
 
-        # Nur PDFs, max 10 MB
         if not (name.lower().endswith(".pdf") or "pdf" in content_type.lower()):
             continue
         if size > 10 * 1024 * 1024:
+            continue
+
+        # AGB, Widerrufsrecht, etc. ausfiltern — nur Rechnungs-relevante PDFs
+        name_lower = name.lower()
+        skip_names = ["agb", "widerrufsrecht", "datenschutz", "terms", "privacy", "conditions"]
+        if any(skip in name_lower for skip in skip_names):
             continue
 
         content_bytes = att.get("contentBytes")
         if not content_bytes:
             continue
 
-        import base64
         pdf_bytes = base64.b64decode(content_bytes)
-
         safe_name = re.sub(r"[^\w.\-]", "_", name)
         save_path = download_dir / f"{prefix}{safe_name}"
         save_path.write_bytes(pdf_bytes)
-        downloaded.append(save_path)
 
-    return downloaded
+        if "invoice" in name.lower():
+            invoices.append(save_path)
+        elif "receipt" in name.lower():
+            receipts.append(save_path)
+        else:
+            invoices.append(save_path)
+
+    # Invoice hat Vorrang — Receipts nur wenn keine Invoice vorhanden
+    if invoices:
+        for r in receipts:
+            r.unlink(missing_ok=True)
+        return invoices
+    return receipts
 
 
 # ─── Orchestrator ───────────────────────────────────────────────────
@@ -354,6 +380,10 @@ def match_and_download_receipts(
     matched = []
     unmatched = []
     all_files = []
+    # Deduplizierung: Email-ID → Vendor-Keyword. Gleicher Vendor darf dieselbe Email
+    # mehrfach nutzen (z.B. 2 LangChain-Einträge, 1 LangChain-Email).
+    # Verschiedene Vendor dürfen dieselbe Email NICHT nutzen.
+    used_messages = {}  # msg_id → set of vendor keywords
 
     # Nur Belastungen (keine Gutschriften)
     debits = [e for e in entries if not e.get("is_credit")]
@@ -366,14 +396,34 @@ def match_and_download_receipts(
         print(f"  [{idx}/{len(debits)}] {vendor:<30s}  {amount:>8.2f} EUR  ({date})")
 
         candidates = search_receipts_for_entry(token, search_folders, entry)
+        # Bereits benutzte Emails ausschließen — aber gleicher Vendor darf wiederverwenden
+        vendor_kw = _get_search_keywords(vendor)[0] if _get_search_keywords(vendor) else vendor.lower()
+        candidates = [c for c in candidates
+                      if c.get("id") not in used_messages
+                      or vendor_kw in used_messages.get(c.get("id"), set())]
         if not candidates:
             print(f"         ⚠️  Kein passender Beleg gefunden")
             unmatched.append(entry)
             continue
 
-        # Besten Kandidaten nehmen — bevorzuge solche MIT Anhang
+        # Besten Kandidaten wählen:
+        # 1. Nur solche mit Anhang (wenn vorhanden)
+        # 2. Sortiert nach Datum-Nähe zum MC-Eintrag (nächstes Datum zuerst)
         with_att = [c for c in candidates if c.get("_has_attachments")]
-        msg = with_att[0] if with_att else candidates[0]
+        pool = with_att if with_att else candidates
+
+        entry_date = _parse_date(date)
+        if entry_date and len(pool) > 1:
+            def _date_distance(msg):
+                recv = msg.get("receivedDateTime", "")
+                try:
+                    recv_date = datetime.fromisoformat(recv.replace("Z", "+00:00")).replace(tzinfo=None)
+                    return abs((recv_date - entry_date).total_seconds())
+                except (ValueError, TypeError):
+                    return 999999999
+            pool.sort(key=_date_distance)
+
+        msg = pool[0]
         subject = msg.get("subject", "")[:60]
         print(f"         ✅ {subject}")
 
@@ -381,6 +431,11 @@ def match_and_download_receipts(
         date_prefix = date.replace(".", "") + "_" if date else ""
         vendor_short = re.sub(r"[^\w]", "", vendor)[:20]
         prefix = f"{date_prefix}{vendor_short}_"
+
+        msg_id = msg["id"]
+        if msg_id not in used_messages:
+            used_messages[msg_id] = set()
+        used_messages[msg_id].add(vendor_kw)
 
         if msg.get("_has_attachments"):
             files = download_attachments(token, msg["id"], download_dir, prefix)

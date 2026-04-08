@@ -1,4 +1,4 @@
-"""Email-Versand über Microsoft Graph API."""
+"""Email-Versand über Microsoft Graph API — mit strukturiertem Beleg-Report."""
 
 import base64
 import sys
@@ -10,90 +10,116 @@ import requests
 from src.config import RECIPIENT_EMAIL, GRAPH_SEND_URL, DOWNLOAD_DIR
 from src.auth import get_graph_token
 from src.timer import Timer
+from src.result import RunResult
 
 
-def send_email(files: list[Path], timer: Timer, dry_run: bool = False, cc_email: str | None = None,
-               mc_pdf_name: str | None = None, failed_refs: list[str] | None = None,
-               total_refs: int | None = None, unmatched_entries: list[dict] | None = None,
-               link_only_entries: list[dict] | None = None):
-    """Versendet die Rechnungen und Belege per Microsoft Graph API (OAuth)."""
-    if not files:
-        print("\n📭 Keine neuen Rechnungen/Belege zum Versenden.")
+def _build_body(result: RunResult) -> str:
+    """Baut den Email-Body mit Zuordnungstabelle."""
+    now = datetime.now()
+    lines = []
+    lines.append("--- Automatisch generierte Email (Expense Bot) ---\n")
+    lines.append(f"Hallo,\n")
+
+    if result.mc_pdf_name:
+        lines.append(f"Quelle: Mastercard-Abrechnung \"{result.mc_pdf_name}\"")
+
+    lines.append(f"Ergebnis: {result.summary()}\n")
+    lines.append(f"{'='*70}")
+
+    # ── DB-Rechnungen ──
+    db = result.db_entries
+    if db:
+        matched_db = [e for e in db if e.status == "matched"]
+        failed_db = [e for e in db if e.status != "matched"]
+        lines.append(f"\nDB-RECHNUNGEN ({len(matched_db)}/{len(db)}):")
+        for e in db:
+            if e.files:
+                fnames = ", ".join(f.name for f in e.files)
+                lines.append(f"  ✅ {e.date:>8s}  {e.amount:>8.2f} EUR  Ref: {e.entry.get('booking_ref', '?')}")
+                lines.append(f"     → {fnames}")
+            else:
+                lines.append(f"  ❌ {e.date:>8s}  {e.amount:>8.2f} EUR  Ref: {e.entry.get('booking_ref', '?')}")
+                if e.entry.get("booking_ref"):
+                    lines.append(f"     → https://www.bahn.de/buchung/reise?auftragsnummer={e.entry['booking_ref']}")
+
+    # ── Sonstige Belege ──
+    non_db = result.non_db_entries
+    if non_db:
+        matched = [e for e in non_db if e.status == "matched"]
+        lines.append(f"\n{'='*70}")
+        lines.append(f"\nBELEGE ({len(matched)}/{len(non_db)}):")
+        lines.append(f"{'─'*70}")
+
+        for e in non_db:
+            vendor = e.vendor[:30]
+            status_icon = {"matched": "✅", "link_only": "🔗", "unmatched": "❌", "pending": "❓"}.get(e.status, "?")
+
+            lines.append(f"  {status_icon} {e.date:>8s}  {vendor:<30s}  {e.amount:>8.2f} EUR")
+
+            if e.files:
+                for f in e.files:
+                    lines.append(f"     → {f.name}")
+                if e.source:
+                    lines.append(f"     Quelle: {e.source}")
+            elif e.receipt_url:
+                lines.append(f"     → Link: {e.receipt_url[:80]}")
+            elif e.status in ("unmatched", "pending"):
+                lines.append(f"     → KEIN BELEG GEFUNDEN")
+
+    # ── Zusammenfassung ──
+    lines.append(f"\n{'='*70}")
+    lines.append(f"\nZusammenfassung:")
+    lines.append(f"  Gesamt:    {result.total_debits} Einträge")
+    lines.append(f"  Gefunden:  {len(result.matched)} mit PDF")
+    lines.append(f"  Nur Link:  {len(result.link_only)}")
+    lines.append(f"  Fehlend:   {len(result.unmatched)}")
+    lines.append(f"  PDFs:      {len(result.all_files)} Dateien")
+
+    lines.append(f"\nErstellt am {now.strftime('%d.%m.%Y um %H:%M Uhr')}.")
+    lines.append(f"--- Ende der automatischen Nachricht ---")
+
+    return "\n".join(lines)
+
+
+def _build_subject(result: RunResult) -> str:
+    """Baut den Email-Betreff."""
+    now = datetime.now()
+    total = result.total_debits
+    matched = len(result.matched)
+    files = len(result.all_files)
+    has_issues = len(result.unmatched) > 0
+
+    subject = f"[Automatisch] Belege ({matched}/{total} gefunden, {files} PDFs)"
+    subject += f" – {now.strftime('%d.%m.%Y')}"
+    if result.mc_pdf_name:
+        subject += f" – {result.mc_pdf_name}"
+    if has_issues:
+        subject += " ⚠️"
+
+    return subject
+
+
+def send_email(result: RunResult, timer: Timer, dry_run: bool = False, cc_email: str | None = None):
+    """Versendet den Beleg-Report per Microsoft Graph API."""
+    files = result.all_files
+    if not files and not result.unmatched:
+        print("\n📭 Keine Belege zum Versenden.")
         return
 
     cc_info = f" (CC: {cc_email})" if cc_email else ""
     print(f"\n📧 Versende {len(files)} PDF(s) an {RECIPIENT_EMAIL}{cc_info} ...")
+    print(f"   {result.summary()}")
 
     if dry_run:
         print("  🏃 Dry-Run: Email wird NICHT gesendet")
-        for f in files:
-            print(f"    📎 {f.name} ({f.stat().st_size / 1024:.1f} KB)")
+        body = _build_body(result)
+        print("\n" + body)
         return
 
     token = get_graph_token()
 
-    now = datetime.now()
-    db_files = [f for f in files if "DB_Rechnung" in f.name]
-    receipt_files = [f for f in files if "DB_Rechnung" not in f.name]
-
-    source_line = f"Quelle: Mastercard-Abrechnung \"{mc_pdf_name}\"\n\n" if mc_pdf_name else ""
-
-    db_section = ""
-    if db_files:
-        if failed_refs and total_refs:
-            db_section = (
-                f"DB-Rechnungen: {len(db_files)} von {total_refs} heruntergeladen\n"
-                f"⚠️  Fehlgeschlagene Buchungen (bitte manuell prüfen):\n"
-            )
-            for ref in failed_refs:
-                db_section += f"  - Auftrag {ref}: https://www.bahn.de/buchung/reise?auftragsnummer={ref}\n"
-        elif total_refs:
-            db_section = f"DB-Rechnungen: alle {total_refs} erfolgreich heruntergeladen\n"
-        db_section += "".join(f"  - {f.name}\n" for f in db_files)
-        db_section += "\n"
-
-    receipt_section = ""
-    if receipt_files:
-        receipt_section = f"Belege aus Outlook: {len(receipt_files)} PDFs heruntergeladen\n"
-        receipt_section += "".join(f"  - {f.name}\n" for f in receipt_files)
-        receipt_section += "\n"
-
-    link_section = ""
-    if link_only_entries:
-        link_section = f"ℹ️  Belege ohne PDF-Anhang ({len(link_only_entries)}) – bitte manuell herunterladen:\n"
-        for m in link_only_entries:
-            e = m.get("entry", {})
-            vendor = e.get("vendor", "?")
-            amount = e.get("amount", 0)
-            url = m.get("receipt_url", "")
-            link_section += f"  - {vendor}  {amount:.2f} EUR\n"
-            if url:
-                link_section += f"    → {url}\n"
-        link_section += "\n"
-
-    unmatched_section = ""
-    if unmatched_entries:
-        unmatched_section = f"⚠️  Kein Beleg gefunden für {len(unmatched_entries)} Einträge:\n"
-        for e in unmatched_entries:
-            vendor = e.get("vendor", "?")
-            amount = e.get("amount", 0)
-            date = e.get("date", "")
-            unmatched_section += f"  - {date}  {vendor}  {amount:.2f} EUR\n"
-        unmatched_section += "\n"
-
-    body_text = (
-        f"--- Automatisch generierte Email (Expense Bot) ---\n\n"
-        f"Hallo,\n\n"
-        f"anbei {len(files)} Beleg(e) als PDF im Anhang.\n\n"
-        f"{source_line}"
-        f"{db_section}"
-        f"{receipt_section}"
-        f"{link_section}"
-        f"{unmatched_section}"
-        f"Diese Email wurde automatisch erstellt am {now.strftime('%d.%m.%Y um %H:%M Uhr')}.\n\n"
-        f"Bei Fragen bitte direkt an den Absender wenden.\n"
-        f"--- Ende der automatischen Nachricht ---"
-    )
+    body_text = _build_body(result)
+    subject = _build_subject(result)
 
     attachments = []
     for filepath in files:
@@ -107,14 +133,6 @@ def send_email(files: list[Path], timer: Timer, dry_run: bool = False, cc_email:
 
     to_recipients = [{"emailAddress": {"address": RECIPIENT_EMAIL}}]
     cc_recipients = [{"emailAddress": {"address": cc_email}}] if cc_email else []
-
-    has_issues = bool(failed_refs or unmatched_entries)
-    subject = (
-        f"[Automatisch] Belege ({len(files)} PDFs)"
-        f" – {now.strftime('%d.%m.%Y')}"
-        f"{f' – {mc_pdf_name}' if mc_pdf_name else ''}"
-        f"{' ⚠️ UNVOLLSTÄNDIG' if has_issues else ''}"
-    )
 
     payload = {
         "message": {
@@ -134,17 +152,14 @@ def send_email(files: list[Path], timer: Timer, dry_run: bool = False, cc_email:
             "Content-Type": "application/json",
         },
         json=payload,
-        timeout=30,
+        timeout=60,
     )
 
     if response.status_code == 202:
         print("  ✅ Email erfolgreich gesendet!")
-        print(f"\n  📎 Versendete Rechnungen ({len(files)}):")
-        for f in files:
-            print(f"     • {f.name} ({f.stat().st_size / 1024:.1f} KB)")
         timer.lap("Email-Versand")
     else:
         print(f"  ❌ Email-Versand fehlgeschlagen (HTTP {response.status_code})")
-        print(f"     {response.text}")
-        print("     Rechnungen sind trotzdem gespeichert in:", DOWNLOAD_DIR)
+        print(f"     {response.text[:200]}")
+        print("     Belege sind trotzdem gespeichert in:", DOWNLOAD_DIR)
         sys.exit(1)

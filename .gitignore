@@ -19,5 +19,15 @@ beispiel-pdfs/
 # Logs
 bot.log
 
+# Browser data (vendor-specific)
+.browser-data-spiegel/
+.browser-data-google/
+.browser-data-amazon/
+.browser-data-openai/
+
+# Temp
+belege_debug/
+google_screenshot.png
+
 # macOS
 .DS_Store
