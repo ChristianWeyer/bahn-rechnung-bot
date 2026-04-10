@@ -24,14 +24,15 @@ def _filter_google_entries(entries: list[dict]) -> list[dict]:
     """Filtert Google/YouTube-Einträge für pay.google.com.
 
     Ausgeschlossen:
-    - WL*GOOGLE: wird per Outlook gesucht
     - GOOGLE ONE: wird über Google Play Email abgerechnet (Outlook HTML-Fallback)
+
+    Eingeschlossen:
+    - GOOGLE*YOUTUBE MEMBER, WL*GOOGLE (YouTube Member) → pay.google.com
     """
     return [
         e for e in entries
         if not e.get("is_credit")
         and any(k in e.get("vendor", "").upper() for k in ["GOOGLE", "YOUTUBE"])
-        and "WL*GOOGLE" not in e.get("vendor", "").upper()
         and "GOOGLE ONE" not in e.get("vendor", "").upper()
     ]
 

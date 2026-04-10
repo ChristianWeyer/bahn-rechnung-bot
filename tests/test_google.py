@@ -39,10 +39,10 @@ class TestGoogleEntryFilter:
         entries = [{"vendor": "Google YouTube Member", "amount": 4.99}]
         assert len(_filter_google_entries(entries)) == 1
 
-    def test_wl_google_excluded(self):
-        """WL*GOOGLE entries are handled by Outlook, not Google scraper."""
+    def test_wl_google_included(self):
+        """WL*GOOGLE is YouTube Member → pay.google.com."""
         entries = [{"vendor": "WL*GOOGLE", "amount": 4.99}]
-        assert len(_filter_google_entries(entries)) == 0
+        assert len(_filter_google_entries(entries)) == 1
 
     def test_non_google_excluded(self):
         entries = [{"vendor": "ANTHROPIC", "amount": 100.0}]
@@ -61,8 +61,10 @@ class TestGoogleEntryFilter:
             {"vendor": "Google One", "amount": 7.99},
         ]
         filtered = _filter_google_entries(entries)
-        assert len(filtered) == 1  # Nur YouTube Member
-        assert filtered[0]["vendor"] == "GOOGLE*YOUTUBE MEMBER"
+        assert len(filtered) == 2  # YouTube Member + WL*GOOGLE
+        vendors = [e["vendor"] for e in filtered]
+        assert "GOOGLE*YOUTUBE MEMBER" in vendors
+        assert "WL*GOOGLE" in vendors
 
 
 # ─── Betrags-Formatierung ───────────────────────────────────────────
