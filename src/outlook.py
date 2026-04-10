@@ -190,9 +190,11 @@ def _score_candidate(msg: dict, vendor_keyword: str, amount: float) -> int:
     if amount_str_comma in subject or amount_str_dot in subject:
         score += 2
 
-    # Bonus: Hat PDF-Anhang (echte Rechnung > Email-Body)
-    if msg.get("hasAttachments"):
-        score += 3
+    # Bonus: Hat PDF-Anhang (Tiebreaker — echte Rechnung > Email-Body)
+    # Nur wenn bereits ein Keyword-Match vorliegt (score > 0), sonst
+    # würden beliebige Emails mit Anhang falsch gematcht
+    if msg.get("hasAttachments") and score > 0:
+        score += 1
 
     # Bonus: Absender sieht nach Billing/Service aus
     if any(p in sender for p in ["billing", "invoice", "receipt", "service@", "noreply@tax"]):
