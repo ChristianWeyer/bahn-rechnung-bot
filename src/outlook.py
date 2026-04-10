@@ -472,7 +472,9 @@ def _is_receipt_email(content: str) -> bool:
                        "mwst", "vat", "tax"]
     has_receipt_signal = any(s in text for s in receipt_signals)
 
-    return has_amount or has_receipt_signal
+    # Beides muss vorhanden sein: ein Betrag UND ein Receipt-Signal.
+    # Nur Betrag allein reicht nicht (viele Emails erwähnen Preise ohne Beleg zu sein).
+    return has_amount and has_receipt_signal
 
 
 def _save_email_body_as_pdf(token: str, message_id: str, download_dir: Path, prefix: str) -> Path | None:

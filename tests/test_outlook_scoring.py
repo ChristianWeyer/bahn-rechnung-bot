@@ -703,6 +703,11 @@ class TestIsReceiptEmail:
         html = "<html><body>Thanks for supporting The Times. Dear Subscriber, Thank you for subscribing to The New York Times.</body></html>"
         assert not _is_receipt_email(html)
 
+    def test_nyt_with_price_but_no_receipt_signal(self):
+        """NYT email mit Preis aber ohne Receipt-Keywords — kein Beleg."""
+        html = "<html><body>Thanks for supporting The Times. Your subscription: $2.00/week. Next billing date: March 14, 2026.</body></html>"
+        assert not _is_receipt_email(html)
+
     def test_wsj_account_update(self):
         """WSJ 'Account Information Update Confirmation' — kein Beleg."""
         html = "<html><body>Account Information Update Confirmation. Dear Christian, Thank you for contacting us. This email confirms that your request has been processed.</body></html>"
