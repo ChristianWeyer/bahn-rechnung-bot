@@ -51,7 +51,6 @@ else
     if [ -d "/Applications/Google Chrome Canary.app" ]; then
         "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary" \
             --remote-debugging-port=9222 \
-            --user-data-dir="$HOME/ChromeCanaryProfile" \
             --no-first-run > /dev/null 2>&1 &
         sleep 2
         CDP_READY=false
