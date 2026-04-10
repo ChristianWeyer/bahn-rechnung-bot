@@ -125,7 +125,7 @@ VENDOR_KEYWORDS = {
     "WACHETE": ["wachete"],
     "X CORP": ["receipt from x", "x premium", "twitter"],
     "LATENT.SPACE": ["latent space", "swyx"],
-    "HOLIDAY INN": ["holiday inn", "ihg"],
+    "HOLIDAY INN": ["holiday inn", "ihg", "hiex", "invoice for your stay"],
     "CLAUDE.AI": ["anthropic", "claude"],
     "AUTHO": ["auth0"],
     "AUTH0": ["auth0"],
@@ -189,6 +189,10 @@ def _score_candidate(msg: dict, vendor_keyword: str, amount: float) -> int:
     amount_str_dot = f"{amount:.2f}"
     if amount_str_comma in subject or amount_str_dot in subject:
         score += 2
+
+    # Bonus: Hat PDF-Anhang (echte Rechnung > Email-Body)
+    if msg.get("hasAttachments"):
+        score += 3
 
     # Bonus: Absender sieht nach Billing/Service aus
     if any(p in sender for p in ["billing", "invoice", "receipt", "service@", "noreply@tax"]):
