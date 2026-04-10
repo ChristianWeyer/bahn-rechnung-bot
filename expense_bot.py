@@ -96,6 +96,8 @@ def main():
         if run_dir.exists() and not any(run_dir.iterdir()):
             run_dir.rename(named_dir)
             run_dir = named_dir
+            _cfg.DOWNLOAD_DIR = run_dir
+            _cfg.BELEGE_DIR = run_dir
         print(f"Belege-Ordner: {run_dir}")
         print(f"\nLese Mastercard-PDF: {mc_path}")
 
@@ -192,7 +194,7 @@ def _fetch_outlook(non_db_raw: list[dict], result: RunResult, timer: Timer):
     """Outlook Belege suchen und direkt im Result tracken."""
     from src.outlook import match_and_download_receipts
     token = get_graph_token()
-    outlook_results = match_and_download_receipts(token, non_db_raw, run_dir)
+    outlook_results = match_and_download_receipts(token, non_db_raw, DOWNLOAD_DIR)
 
     for m in outlook_results.get("matched", []):
         entry = m["entry"]
@@ -242,7 +244,7 @@ def _fetch_amazon(context, result: RunResult, timer: Timer):
 
     from src.amazon import download_amazon_invoices
     amazon_page = context.new_page()
-    amazon_results = download_amazon_invoices(amazon_page, amazon_entries, run_dir, AMAZON_EMAIL, AMAZON_PASSWORD)
+    amazon_results = download_amazon_invoices(amazon_page, amazon_entries, DOWNLOAD_DIR, AMAZON_EMAIL, AMAZON_PASSWORD)
     amazon_page.close()
 
     for entry, filepath in amazon_results:
@@ -255,7 +257,7 @@ def _fetch_amazon(context, result: RunResult, timer: Timer):
 def _fetch_spiegel(non_db_raw: list[dict], result: RunResult, timer: Timer, headed: bool):
     """Spiegel Rechnung — eigener Browser-Context."""
     from src.spiegel import download_spiegel_invoices
-    spiegel_results = download_spiegel_invoices(non_db_raw, run_dir, headed=headed)
+    spiegel_results = download_spiegel_invoices(non_db_raw, DOWNLOAD_DIR, headed=headed)
     for entry, filepath in spiegel_results:
         result.mark_matched(entry, [filepath], source="spiegel")
     if spiegel_results:
@@ -269,7 +271,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # Cloudflare (API, kein Browser)
     from src.cloudflare import download_cloudflare_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    cf_results = download_cloudflare_invoices(pending, run_dir)
+    cf_results = download_cloudflare_invoices(pending, DOWNLOAD_DIR)
     for entry, filepath in cf_results:
         result.mark_matched(entry, [filepath], source="cloudflare-api")
     total += len(cf_results)
@@ -277,7 +279,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # OpenAI + Adobe (Portal JSON configs)
     from src.portal import download_portal_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    portal_results = download_portal_invoices(page, pending, run_dir)
+    portal_results = download_portal_invoices(page, pending, DOWNLOAD_DIR)
     for entry, filepath, portal_id in portal_results:
         result.mark_matched(entry, [filepath], source=f"portal:{portal_id}")
     total += len(portal_results)
@@ -285,7 +287,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # Heise
     from src.heise import download_heise_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    heise_results = download_heise_invoices(page, pending, run_dir)
+    heise_results = download_heise_invoices(page, pending, DOWNLOAD_DIR)
     for entry, filepath in heise_results:
         result.mark_matched(entry, [filepath], source="heise")
     total += len(heise_results)
@@ -293,7 +295,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # Adobe
     from src.adobe import download_adobe_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    adobe_results = download_adobe_invoices(page, pending, run_dir)
+    adobe_results = download_adobe_invoices(page, pending, DOWNLOAD_DIR)
     for entry, filepath in adobe_results:
         result.mark_matched(entry, [filepath], source="adobe")
     total += len(adobe_results)
@@ -301,7 +303,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # Figma
     from src.figma import download_figma_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    figma_results = download_figma_invoices(page, pending, run_dir)
+    figma_results = download_figma_invoices(page, pending, DOWNLOAD_DIR)
     for entry, filepath in figma_results:
         result.mark_matched(entry, [filepath], source="figma")
     total += len(figma_results)
@@ -309,7 +311,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # Google (CDP iframe)
     from src.google import download_google_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    google_results = download_google_invoices(page, pending, run_dir)
+    google_results = download_google_invoices(page, pending, DOWNLOAD_DIR)
     for entry, filepath in google_results:
         result.mark_matched(entry, [filepath], source="google")
     total += len(google_results)
@@ -317,7 +319,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # Audible
     from src.audible import download_audible_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    audible_results = download_audible_invoices(page, pending, run_dir)
+    audible_results = download_audible_invoices(page, pending, DOWNLOAD_DIR)
     for entry, filepath in audible_results:
         result.mark_matched(entry, [filepath], source="audible")
     total += len(audible_results)
