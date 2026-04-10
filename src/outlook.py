@@ -28,28 +28,47 @@ BELEGE_FOLDER = os.environ.get("BELEGE_FOLDER", "Belege")
 # ─── Graph API Helpers ──────────────────────────────────────────────
 
 def _graph_get(url: str, token: str, params: dict | None = None, _retried: bool = False) -> dict:
-    """GET-Request an die Graph API. Bei 401 wird einmalig ein Token-Refresh versucht."""
-    resp = requests.get(
-        url,
-        headers={"Authorization": f"Bearer {token}"},
-        params=params,
-        timeout=30,
-    )
-    if resp.status_code == 401 and not _retried:
-        print("  ⚠️  Graph API: 401 — versuche Token-Refresh ...")
-        from src.auth import get_graph_token
-        new_token = get_graph_token()
-        return _graph_get(url, new_token, params, _retried=True)
-    if resp.status_code == 401:
-        print("  ❌ Graph API: Token abgelaufen (auch nach Refresh). Bitte .token_cache.json löschen und neu anmelden.")
-        return {}
-    if resp.status_code == 403:
-        print("  ❌ Graph API: Fehlende Berechtigung (Mail.Read). Bitte .token_cache.json löschen und neu anmelden.")
-        return {}
-    if resp.status_code != 200:
-        print(f"  ⚠️  Graph API Fehler {resp.status_code}: {resp.text[:200]}")
-        return {}
-    return resp.json()
+    """GET-Request an die Graph API. Retry bei Timeout/5xx, Token-Refresh bei 401."""
+    for attempt in range(3):
+        try:
+            resp = requests.get(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+                params=params,
+                timeout=30,
+            )
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            if attempt < 2:
+                wait = (attempt + 1) * 5
+                print(f"  ⚠️  Graph API: {type(e).__name__} — Retry in {wait}s ...")
+                time.sleep(wait)
+                continue
+            print(f"  ❌ Graph API: {type(e).__name__} nach 3 Versuchen")
+            return {}
+
+        if resp.status_code == 401 and not _retried:
+            print("  ⚠️  Graph API: 401 — versuche Token-Refresh ...")
+            from src.auth import get_graph_token
+            new_token = get_graph_token()
+            return _graph_get(url, new_token, params, _retried=True)
+        if resp.status_code == 401:
+            print("  ❌ Graph API: Token abgelaufen (auch nach Refresh). Bitte .token_cache.json löschen und neu anmelden.")
+            return {}
+        if resp.status_code == 403:
+            print("  ❌ Graph API: Fehlende Berechtigung (Mail.Read). Bitte .token_cache.json löschen und neu anmelden.")
+            return {}
+        if resp.status_code == 429 or resp.status_code >= 500:
+            if attempt < 2:
+                wait = (attempt + 1) * 5
+                print(f"  ⚠️  Graph API: HTTP {resp.status_code} — Retry in {wait}s ...")
+                time.sleep(wait)
+                continue
+        if resp.status_code != 200:
+            print(f"  ⚠️  Graph API Fehler {resp.status_code}: {resp.text[:200]}")
+            return {}
+        return resp.json()
+
+    return {}
 
 
 def find_mail_folder(token: str, folder_name: str = BELEGE_FOLDER) -> str | None:
@@ -452,6 +471,25 @@ def _extract_receipt_url(token: str, message_id: str) -> str | None:
     return None
 
 
+def _download_receipt_from_link(token: str, message_id: str, download_dir: Path, prefix: str) -> Path | None:
+    """Sucht einen Receipt/Invoice-Download-Link im Email-Body und lädt das PDF herunter."""
+    url = _extract_receipt_url(token, message_id)
+    if not url:
+        return None
+
+    try:
+        resp = requests.get(url, timeout=30, allow_redirects=True)
+        if resp.status_code == 200 and resp.content[:5] == b"%PDF-":
+            fname = f"{prefix}receipt.pdf"
+            save_path = download_dir / fname
+            save_path.write_bytes(resp.content)
+            return save_path
+    except Exception:
+        pass
+
+    return None
+
+
 def _is_receipt_email(content: str) -> bool:
     """Prüft ob ein Email-Body tatsächlich eine Rechnung/Beleg enthält.
 
@@ -775,20 +813,34 @@ def match_and_download_receipts(
             # Greift bei: Google Play Belege, Stripe Receipts, Emails mit nur AGB-Anhängen, etc.
             score = msg.get("_score", 0)
             if score >= 4:
-                body_pdf = _save_email_body_as_pdf(token, msg["id"], download_dir, prefix)
-                if body_pdf:
-                    print(f"         📎 {body_pdf.name} (aus Email-Body)")
-                    all_files.append(body_pdf)
+                # 1. Versuch: Receipt-Download-Link im Email-Body finden und PDF holen
+                receipt_pdf = _download_receipt_from_link(token, msg["id"], download_dir, prefix)
+                if receipt_pdf:
+                    print(f"         📎 {receipt_pdf.name} (via Receipt-Link)")
+                    all_files.append(receipt_pdf)
                     used_message_ids.add(msg["id"])
                     matched.append({
                         "entry": entry,
                         "email_subject": msg.get("subject", ""),
                         "email_id": msg["id"],
-                        "files": [body_pdf],
+                        "files": [receipt_pdf],
                     })
                 else:
-                    print(f"         ⚠️ Email ohne verwertbaren Inhalt")
-                    unmatched.append(entry)
+                    # 2. Fallback: Email-Body als HTML→PDF speichern
+                    body_pdf = _save_email_body_as_pdf(token, msg["id"], download_dir, prefix)
+                    if body_pdf:
+                        print(f"         📎 {body_pdf.name} (aus Email-Body)")
+                        all_files.append(body_pdf)
+                        used_message_ids.add(msg["id"])
+                        matched.append({
+                            "entry": entry,
+                            "email_subject": msg.get("subject", ""),
+                            "email_id": msg["id"],
+                            "files": [body_pdf],
+                        })
+                    else:
+                        print(f"         ⚠️ Email ohne verwertbaren Inhalt")
+                        unmatched.append(entry)
             else:
                 print(f"         Email ohne PDF -> weiter an Portal-Scraper")
                 unmatched.append(entry)
