@@ -7,7 +7,9 @@ Quellen, und versendet einen konsolidierten Report per Email.
 """
 
 import argparse
+import re
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -54,6 +56,18 @@ def main():
     print("Expense Bot")
     print("=" * 50)
 
+    # -- Run-Ordner erstellen --
+    run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir = DOWNLOAD_DIR / run_timestamp
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    # Bahn-Modul nutzt DOWNLOAD_DIR direkt aus config — zur Laufzeit umbiegen
+    import src.config as _cfg
+    _cfg.DOWNLOAD_DIR = run_dir
+    _cfg.BELEGE_DIR = run_dir
+
+    print(f"\nBelege-Ordner: {run_dir}")
+
     # -- MC-PDF parsen --
     booking_refs = None
     non_db_raw = []
@@ -75,6 +89,14 @@ def main():
             print(f"   Neuestes PDF: {mc_path.name}")
 
         result.mc_pdf_name = mc_path.name
+
+        # Run-Ordner nach MC-PDF benennen
+        safe_name = re.sub(r"[^\w\-.]", "_", mc_path.stem)[:60]
+        named_dir = DOWNLOAD_DIR / f"{run_timestamp}_{safe_name}"
+        if run_dir.exists() and not any(run_dir.iterdir()):
+            run_dir.rename(named_dir)
+            run_dir = named_dir
+        print(f"Belege-Ordner: {run_dir}")
         print(f"\nLese Mastercard-PDF: {mc_path}")
 
         all_entries = extract_all_entries(str(mc_path), marked_only=args.marked_entries_only)
@@ -170,7 +192,7 @@ def _fetch_outlook(non_db_raw: list[dict], result: RunResult, timer: Timer):
     """Outlook Belege suchen und direkt im Result tracken."""
     from src.outlook import match_and_download_receipts
     token = get_graph_token()
-    outlook_results = match_and_download_receipts(token, non_db_raw, BELEGE_DIR)
+    outlook_results = match_and_download_receipts(token, non_db_raw, run_dir)
 
     for m in outlook_results.get("matched", []):
         entry = m["entry"]
@@ -220,7 +242,7 @@ def _fetch_amazon(context, result: RunResult, timer: Timer):
 
     from src.amazon import download_amazon_invoices
     amazon_page = context.new_page()
-    amazon_results = download_amazon_invoices(amazon_page, amazon_entries, BELEGE_DIR, AMAZON_EMAIL, AMAZON_PASSWORD)
+    amazon_results = download_amazon_invoices(amazon_page, amazon_entries, run_dir, AMAZON_EMAIL, AMAZON_PASSWORD)
     amazon_page.close()
 
     for entry, filepath in amazon_results:
@@ -233,7 +255,7 @@ def _fetch_amazon(context, result: RunResult, timer: Timer):
 def _fetch_spiegel(non_db_raw: list[dict], result: RunResult, timer: Timer, headed: bool):
     """Spiegel Rechnung — eigener Browser-Context."""
     from src.spiegel import download_spiegel_invoices
-    spiegel_results = download_spiegel_invoices(non_db_raw, BELEGE_DIR, headed=headed)
+    spiegel_results = download_spiegel_invoices(non_db_raw, run_dir, headed=headed)
     for entry, filepath in spiegel_results:
         result.mark_matched(entry, [filepath], source="spiegel")
     if spiegel_results:
@@ -247,7 +269,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # Cloudflare (API, kein Browser)
     from src.cloudflare import download_cloudflare_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    cf_results = download_cloudflare_invoices(pending, BELEGE_DIR)
+    cf_results = download_cloudflare_invoices(pending, run_dir)
     for entry, filepath in cf_results:
         result.mark_matched(entry, [filepath], source="cloudflare-api")
     total += len(cf_results)
@@ -255,7 +277,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # OpenAI + Adobe (Portal JSON configs)
     from src.portal import download_portal_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    portal_results = download_portal_invoices(page, pending, BELEGE_DIR)
+    portal_results = download_portal_invoices(page, pending, run_dir)
     for entry, filepath, portal_id in portal_results:
         result.mark_matched(entry, [filepath], source=f"portal:{portal_id}")
     total += len(portal_results)
@@ -263,7 +285,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # Heise
     from src.heise import download_heise_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    heise_results = download_heise_invoices(page, pending, BELEGE_DIR)
+    heise_results = download_heise_invoices(page, pending, run_dir)
     for entry, filepath in heise_results:
         result.mark_matched(entry, [filepath], source="heise")
     total += len(heise_results)
@@ -271,7 +293,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # Figma
     from src.figma import download_figma_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    figma_results = download_figma_invoices(page, pending, BELEGE_DIR)
+    figma_results = download_figma_invoices(page, pending, run_dir)
     for entry, filepath in figma_results:
         result.mark_matched(entry, [filepath], source="figma")
     total += len(figma_results)
@@ -279,7 +301,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # Google (CDP iframe)
     from src.google import download_google_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    google_results = download_google_invoices(page, pending, BELEGE_DIR)
+    google_results = download_google_invoices(page, pending, run_dir)
     for entry, filepath in google_results:
         result.mark_matched(entry, [filepath], source="google")
     total += len(google_results)
@@ -287,7 +309,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # Audible
     from src.audible import download_audible_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    audible_results = download_audible_invoices(page, pending, BELEGE_DIR)
+    audible_results = download_audible_invoices(page, pending, run_dir)
     for entry, filepath in audible_results:
         result.mark_matched(entry, [filepath], source="audible")
     total += len(audible_results)
