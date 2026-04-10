@@ -12,6 +12,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 from src.config import ROOT_DIR, _get_secret
+from src.util import parse_date
 
 KONTO_URL = "https://gruppenkonto.spiegel.de/meinkonto/uebersicht.html"
 ABO_URL = "https://gruppenkonto.spiegel.de/meinkonto/abonnements/anzeigen.html"
@@ -23,7 +24,7 @@ SPIEGEL_PASSWORD = _get_secret("SPIEGEL_PASSWORD", "op://Shared/Spiegel/password
 
 def _login_spiegel(page, email: str, password: str) -> bool:
     """Login bei Spiegel Gruppenkonto (zweistufig: Email -> Passwort)."""
-    print("  Spiegel Login ...")
+    print("  🔑 Spiegel Login ...")
 
     email_input = page.locator('input[name="loginform:username"], input[type="email"]')
     if email_input.count() > 0:
@@ -46,14 +47,14 @@ def _login_spiegel(page, email: str, password: str) -> bool:
             submit.first.click()
             page.wait_for_timeout(5000)
     except PlaywrightTimeout:
-        print("  Passwort-Feld nicht sichtbar")
+        print("  ⚠️ Passwort-Feld nicht sichtbar")
         return False
 
     if "anmelden" in page.url:
-        print("  Spiegel Login fehlgeschlagen")
+        print("  ❌ Spiegel Login fehlgeschlagen")
         return False
 
-    print("  Spiegel Login erfolgreich")
+    print("  ✅ Spiegel Login erfolgreich")
     return True
 
 
@@ -73,13 +74,8 @@ def _find_rechnungen_url(page) -> str | None:
 
 
 def _parse_date(date_str: str) -> datetime | None:
-    """Parst DD.MM.YYYY oder DD.MM.YY."""
-    for fmt in ("%d.%m.%Y", "%d.%m.%y"):
-        try:
-            return datetime.strptime(date_str.strip(), fmt)
-        except ValueError:
-            continue
-    return None
+    """Parst Datumsformate — delegiert an zentrale parse_date()."""
+    return parse_date(date_str)
 
 
 def download_spiegel_invoices(
@@ -102,10 +98,10 @@ def download_spiegel_invoices(
         return []
 
     if not SPIEGEL_EMAIL or not SPIEGEL_PASSWORD:
-        print("\n  Spiegel: Keine Credentials konfiguriert")
+        print("\n  ⚠️ Spiegel: Keine Credentials konfiguriert")
         return []
 
-    print(f"\n  Spiegel: Suche {len(spiegel_entries)} Rechnung(en) ...")
+    print(f"\n  🔍 Spiegel: Suche {len(spiegel_entries)} Rechnung(en) ...")
 
     BROWSER_DATA.mkdir(exist_ok=True)
 
@@ -129,7 +125,7 @@ def download_spiegel_invoices(
             # Rechnungsseite finden
             rechnungen_url = _find_rechnungen_url(page)
             if not rechnungen_url:
-                print("  Keine Rechnungsseite gefunden")
+                print("  ⚠️ Keine Rechnungsseite gefunden")
                 return []
 
             page.goto(rechnungen_url, wait_until="domcontentloaded", timeout=15000)
@@ -179,7 +175,7 @@ def download_spiegel_invoices(
                             best_row = row
 
                 if not best_row:
-                    print(f"  Keine passende Rechnung gefunden")
+                    print(f"  ⚠️ Keine passende Rechnung gefunden")
                     continue
 
                 href = best_row["href"]
@@ -207,17 +203,17 @@ def download_spiegel_invoices(
                     if save_path.stat().st_size > 500 and save_path.read_bytes()[:5] == b"%PDF-":
                         results.append((entry, save_path))
                         used_nrs.add(best_row["nr"])
-                        print(f"  -> {fname} ({save_path.stat().st_size / 1024:.1f} KB)")
+                        print(f"  📎 {fname} ({save_path.stat().st_size / 1024:.1f} KB)")
                     else:
                         save_path.unlink(missing_ok=True)
-                        print(f"  Kein gueltiges PDF")
+                        print(f"  ⚠️ Kein gueltiges PDF")
                 except PlaywrightTimeout:
-                    print(f"  Download-Timeout")
+                    print(f"  ❌ Download-Timeout")
                 except Exception as e:
-                    print(f"  Download fehlgeschlagen: {e}")
+                    print(f"  ❌ Download fehlgeschlagen: {e}")
 
             if results:
-                print(f"  {len(results)} Spiegel-Rechnung(en) heruntergeladen")
+                print(f"  ✅ {len(results)} Spiegel-Rechnung(en) heruntergeladen")
             return results
 
         finally:

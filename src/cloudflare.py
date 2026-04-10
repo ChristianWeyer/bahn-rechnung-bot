@@ -61,14 +61,14 @@ def download_cloudflare_invoices(
 
     token = _get_cf_token()
     if not token:
-        print("\n  Cloudflare: CLOUDFLARE_API_TOKEN nicht konfiguriert")
+        print("\n  ⚠️ Cloudflare: CLOUDFLARE_API_TOKEN nicht konfiguriert")
         return []
 
-    print(f"\n  Cloudflare: Suche {len(cf_entries)} Rechnung(en) per API ...")
+    print(f"\n  🔍 Cloudflare: Suche {len(cf_entries)} Rechnung(en) per API ...")
 
     account_id = _get_account_id(token)
     if not account_id:
-        print("  Cloudflare Account-ID nicht gefunden")
+        print("  ❌ Cloudflare Account-ID nicht gefunden")
         return []
 
     # Billing History abrufen
@@ -81,7 +81,7 @@ def download_cloudflare_invoices(
     )
 
     if resp.status_code != 200:
-        print(f"  API-Fehler: HTTP {resp.status_code}")
+        print(f"  ❌ API-Fehler: HTTP {resp.status_code}")
         return []
 
     invoices = resp.json().get("result", [])
@@ -108,7 +108,7 @@ def download_cloudflare_invoices(
                 best_inv = inv
 
         if not best_inv:
-            print(f"  Keine passende Invoice gefunden")
+            print(f"  ⚠️ Keine passende Invoice gefunden")
             continue
 
         invoice_id = best_inv.get("id")
@@ -136,12 +136,12 @@ def download_cloudflare_invoices(
             save_path.write_bytes(pdf_resp.content)
             results.append((entry, save_path))
             best_inv["_used"] = True
-            print(f"  -> {fname} ({len(pdf_resp.content) / 1024:.1f} KB)")
+            print(f"  📎 {fname} ({len(pdf_resp.content) / 1024:.1f} KB)")
         else:
-            print(f"  PDF-Download fehlgeschlagen: HTTP {pdf_resp.status_code}")
+            print(f"  ❌ PDF-Download fehlgeschlagen: HTTP {pdf_resp.status_code}")
 
         time.sleep(0.3)
 
     if results:
-        print(f"  {len(results)} Cloudflare-Rechnung(en) heruntergeladen")
+        print(f"  ✅ {len(results)} Cloudflare-Rechnung(en) heruntergeladen")
     return results

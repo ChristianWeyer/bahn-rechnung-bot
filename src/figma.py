@@ -12,6 +12,7 @@ import requests as http_req
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 from src.config import FIGMA_TEAM_ID, FIGMA_EMAIL, FIGMA_PASSWORD
+from src.util import parse_date
 
 
 FIGMA_LOGIN_URL = "https://www.figma.com/login"
@@ -19,7 +20,7 @@ FIGMA_LOGIN_URL = "https://www.figma.com/login"
 
 def _login_figma(page, email: str, password: str) -> bool:
     """Login bei Figma (email + password)."""
-    print("  Figma Login ...")
+    print("  🔑 Figma Login ...")
 
     page.goto(FIGMA_LOGIN_URL, wait_until="domcontentloaded", timeout=30000)
     page.wait_for_timeout(3000)
@@ -41,22 +42,22 @@ def _login_figma(page, email: str, password: str) -> bool:
 
     # 2FA-Check
     if "two_factor" in page.url or "mfa" in page.url:
-        print("  Figma 2FA erforderlich!")
-        print("  -> Bitte im Browser loesen. Warte max. 120s ...")
+        print("  📱 Figma 2FA erforderlich!")
+        print("  → Bitte im Browser loesen. Warte max. 120s ...")
         try:
             page.wait_for_url(
                 lambda u: "two_factor" not in u and "mfa" not in u and "login" not in u,
                 timeout=120000,
             )
         except PlaywrightTimeout:
-            print("  Figma Login Timeout")
+            print("  ❌ Figma Login Timeout")
             return False
 
     if "login" in page.url:
-        print("  Figma Login fehlgeschlagen")
+        print("  ❌ Figma Login fehlgeschlagen")
         return False
 
-    print("  Figma Login erfolgreich")
+    print("  ✅ Figma Login erfolgreich")
     return True
 
 
@@ -72,7 +73,7 @@ def download_figma_invoices(page, entries: list[dict], download_dir: Path) -> li
     if not figma_entries or not FIGMA_TEAM_ID:
         return []
 
-    print(f"\n  Figma: Suche {len(figma_entries)} Rechnung(en) ...")
+    print(f"\n  🔍 Figma: Suche {len(figma_entries)} Rechnung(en) ...")
 
     cookies = page.context.cookies("https://www.figma.com")
     if not cookies:
@@ -81,8 +82,8 @@ def download_figma_invoices(page, entries: list[dict], download_dir: Path) -> li
                 return []
             cookies = page.context.cookies("https://www.figma.com")
         else:
-            print("  Figma: Nicht eingeloggt und keine Credentials konfiguriert")
-            print("  -> FIGMA_EMAIL/FIGMA_PASSWORD setzen oder op://Private/Figma konfigurieren")
+            print("  ⚠️ Figma: Nicht eingeloggt und keine Credentials konfiguriert")
+            print("  → FIGMA_EMAIL/FIGMA_PASSWORD setzen oder op://Private/Figma konfigurieren")
             return []
     cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
 
@@ -94,7 +95,7 @@ def download_figma_invoices(page, entries: list[dict], download_dir: Path) -> li
         )
         if resp.status_code in (401, 403):
             if FIGMA_EMAIL and FIGMA_PASSWORD:
-                print(f"  Figma: Session abgelaufen (HTTP {resp.status_code}), versuche Login ...")
+                print(f"  ⚠️ Figma: Session abgelaufen (HTTP {resp.status_code}), versuche Login ...")
                 page.context.clear_cookies()
                 if _login_figma(page, FIGMA_EMAIL, FIGMA_PASSWORD):
                     cookies = page.context.cookies("https://www.figma.com")
@@ -105,22 +106,22 @@ def download_figma_invoices(page, entries: list[dict], download_dir: Path) -> li
                         timeout=60,
                     )
                     if resp.status_code != 200:
-                        print(f"  Figma API Fehler nach Login: HTTP {resp.status_code}")
+                        print(f"  ❌ Figma API Fehler nach Login: HTTP {resp.status_code}")
                         return []
                 else:
                     return []
             else:
-                print(f"  Figma: Nicht eingeloggt (HTTP {resp.status_code})")
+                print(f"  ⚠️ Figma: Nicht eingeloggt (HTTP {resp.status_code})")
                 return []
         if resp.status_code != 200:
-            print(f"  API Fehler: HTTP {resp.status_code}")
+            print(f"  ❌ API Fehler: HTTP {resp.status_code}")
             return []
 
         invoices = resp.json().get("meta", {}).get("invoices", [])
         paid = [inv for inv in invoices if inv.get("state") == "paid" and inv.get("invoice_pdf_url")]
         print(f"  {len(paid)} bezahlte Invoice(s) mit PDF")
     except Exception as e:
-        print(f"  API Fehler: {e}")
+        print(f"  ❌ API Fehler: {e}")
         return []
 
     if not paid:
@@ -134,11 +135,7 @@ def download_figma_invoices(page, entries: list[dict], download_dir: Path) -> li
         date_str = entry.get("date", "")
         print(f"  Figma  {amount:.2f} EUR  ({date_str})")
 
-        entry_date = None
-        try:
-            entry_date = datetime.strptime(date_str, "%d.%m.%y")
-        except (ValueError, TypeError):
-            pass
+        entry_date = parse_date(date_str)
 
         # Passende Invoice finden (nach Datum, nur ungenutzte)
         best_inv = None
@@ -149,15 +146,12 @@ def download_figma_invoices(page, entries: list[dict], download_dir: Path) -> li
             if inv_id in used_invoices:
                 continue
             issued = inv.get("issued_at", "")[:10]
-            try:
-                inv_date = datetime.strptime(issued, "%Y-%m-%d")
-                if entry_date:
-                    distance = abs((inv_date - entry_date).days)
-                    if distance < best_distance:
-                        best_distance = distance
-                        best_inv = inv
-            except (ValueError, TypeError):
-                pass
+            inv_date = parse_date(issued)
+            if inv_date and entry_date:
+                distance = abs((inv_date - entry_date).days)
+                if distance < best_distance:
+                    best_distance = distance
+                    best_inv = inv
 
         if not best_inv:
             # Fallback: nächste ungenutzte
@@ -167,12 +161,12 @@ def download_figma_invoices(page, entries: list[dict], download_dir: Path) -> li
                     break
 
         if not best_inv:
-            print(f"  Keine PDF-URL")
+            print(f"  ⚠️ Keine PDF-URL")
             continue
 
         pdf_url = best_inv.get("invoice_pdf_url", "")
         if not pdf_url:
-            print(f"  Keine PDF-URL")
+            print(f"  ⚠️ Keine PDF-URL")
             continue
 
         try:
@@ -184,12 +178,12 @@ def download_figma_invoices(page, entries: list[dict], download_dir: Path) -> li
                 save_path.write_bytes(pdf_resp.content)
                 results.append((entry, save_path))
                 used_invoices.add(best_inv.get("id", ""))
-                print(f"  -> {fname} ({len(pdf_resp.content) / 1024:.1f} KB)")
+                print(f"  📎 {fname} ({len(pdf_resp.content) / 1024:.1f} KB)")
             else:
-                print(f"  PDF-Download: HTTP {pdf_resp.status_code}")
+                print(f"  ❌ PDF-Download fehlgeschlagen: HTTP {pdf_resp.status_code}")
         except Exception as e:
-            print(f"  Download fehlgeschlagen: {e}")
+            print(f"  ❌ Download fehlgeschlagen: {e}")
 
     if results:
-        print(f"  {len(results)} Figma-Rechnung(en) heruntergeladen")
+        print(f"  ✅ {len(results)} Figma-Rechnung(en) heruntergeladen")
     return results

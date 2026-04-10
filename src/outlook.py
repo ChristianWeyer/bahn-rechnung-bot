@@ -157,11 +157,9 @@ def _get_search_keywords(vendor: str) -> list[str]:
 
 
 def _parse_date(date_str: str) -> datetime | None:
-    """Parst ein Datum im Format DD.MM.YY."""
-    try:
-        return datetime.strptime(date_str, "%d.%m.%y")
-    except (ValueError, TypeError):
-        return None
+    """Parst ein Datum — delegiert an zentrale parse_date()."""
+    from src.util import parse_date
+    return parse_date(date_str)
 
 
 # ─── Mail-Suche und Download ────────────────────────────────────────
@@ -578,7 +576,7 @@ def match_and_download_receipts(
             files = download_attachments(token, msg["id"], download_dir, prefix)
             if files:
                 for f in files:
-                    print(f"         -> {f.name}")
+                    print(f"         📎 {f.name}")
                 all_files.extend(files)
                 matched.append({
                     "entry": entry,
@@ -587,7 +585,7 @@ def match_and_download_receipts(
                     "files": files,
                 })
             else:
-                print(f"         Email gefunden aber kein PDF-Anhang")
+                print(f"         ⚠️ Email gefunden aber kein PDF-Anhang")
                 unmatched.append(entry)
         else:
             # Kein PDF-Anhang — versuche Email-Body als PDF zu speichern
@@ -596,7 +594,7 @@ def match_and_download_receipts(
             if score >= 4:
                 body_pdf = _save_email_body_as_pdf(token, msg["id"], download_dir, prefix)
                 if body_pdf:
-                    print(f"         -> {body_pdf.name} (aus Email-Body)")
+                    print(f"         📎 {body_pdf.name} (aus Email-Body)")
                     all_files.append(body_pdf)
                     matched.append({
                         "entry": entry,
@@ -605,7 +603,7 @@ def match_and_download_receipts(
                         "files": [body_pdf],
                     })
                 else:
-                    print(f"         Email ohne PDF -> weiter an Portal-Scraper")
+                    print(f"         ⚠️ Email ohne PDF → weiter an Portal-Scraper")
                     unmatched.append(entry)
             else:
                 print(f"         Email ohne PDF -> weiter an Portal-Scraper")

@@ -20,7 +20,7 @@ ACTIVITY_URL = "https://pay.google.com/gp/w/home/activity"
 
 def _login_google(page, email: str, password: str) -> bool:
     """Login bei Google Account (email -> password -> ggf. 2FA)."""
-    print("  Google Login ...")
+    print("  🔑 Google Login ...")
 
     # Email eingeben
     email_input = page.locator('input[type="email"]')
@@ -43,27 +43,27 @@ def _login_google(page, email: str, password: str) -> bool:
             next_btn.first.click()
             page.wait_for_timeout(5000)
     except PlaywrightTimeout:
-        print("  Passwort-Feld nicht sichtbar")
+        print("  ⚠️ Passwort-Feld nicht sichtbar")
         return False
 
     # 2FA-Check
     if "challenge" in page.url or "signin/v2/challenge" in page.url:
-        print("  Google 2FA erforderlich!")
-        print("  -> Bitte im Browser loesen. Warte max. 120s ...")
+        print("  📱 Google 2FA erforderlich!")
+        print("  → Bitte im Browser loesen. Warte max. 120s ...")
         try:
             page.wait_for_url(
                 lambda u: "challenge" not in u and "signin" not in u,
                 timeout=LOGIN_TIMEOUT,
             )
         except PlaywrightTimeout:
-            print("  Google Login Timeout")
+            print("  ❌ Google Login Timeout")
             return False
 
     if "signin" in page.url:
-        print("  Google Login fehlgeschlagen")
+        print("  ❌ Google Login fehlgeschlagen")
         return False
 
-    print("  Google Login erfolgreich")
+    print("  ✅ Google Login erfolgreich")
     return True
 
 
@@ -115,7 +115,7 @@ def download_google_invoices(page, entries: list[dict], download_dir: Path) -> l
     if not google_entries:
         return []
 
-    print(f"\n  Google Payments: Suche {len(google_entries)} Beleg(e) ...")
+    print(f"\n  🔍 Google Payments: Suche {len(google_entries)} Beleg(e) ...")
 
     page.goto(ACTIVITY_URL, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT)
     page.wait_for_timeout(10000)
@@ -128,22 +128,22 @@ def download_google_invoices(page, entries: list[dict], download_dir: Path) -> l
             page.goto(ACTIVITY_URL, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT)
             page.wait_for_timeout(10000)
         else:
-            print("  Google: Nicht eingeloggt und keine Credentials konfiguriert")
-            print("  -> GOOGLE_EMAIL/GOOGLE_PASSWORD setzen oder op://Private/Google konfigurieren")
+            print("  ⚠️ Google: Nicht eingeloggt und keine Credentials konfiguriert")
+            print("  → GOOGLE_EMAIL/GOOGLE_PASSWORD setzen oder op://Private/Google konfigurieren")
             return []
 
     # iframe finden
     iframe = _find_payments_iframe(page)
     if not iframe:
-        print("  Google: Nicht eingeloggt oder keine Transaktionen (kein payments iframe)")
+        print("  ⚠️ Google: Nicht eingeloggt oder keine Transaktionen (kein payments iframe)")
         return []
 
     text = iframe.evaluate("() => document.body ? document.body.innerText : ''")
     if '\u20ac' not in text and 'YouTube' not in text:
-        print("  Keine Transaktionen sichtbar")
+        print("  ⚠️ Keine Transaktionen sichtbar")
         return []
 
-    print("  Transaktionen geladen")
+    print("  ✅ Transaktionen geladen")
     results = []
 
     for entry in google_entries:
@@ -165,7 +165,7 @@ def download_google_invoices(page, entries: list[dict], download_dir: Path) -> l
                 break
 
         if not clicked:
-            print(f"  Betrag {amount_str} EUR nicht gefunden")
+            print(f"  ⚠️ Betrag {amount_str} EUR nicht gefunden")
             continue
 
         page.wait_for_timeout(4000)
@@ -173,7 +173,7 @@ def download_google_invoices(page, entries: list[dict], download_dir: Path) -> l
         # Prüfen ob Transaktionsdetails sichtbar
         has_details = iframe.evaluate("() => document.body.innerText.includes('Transaktionsdetails')")
         if not has_details:
-            print(f"  Transaktionsdetails nicht geöffnet")
+            print(f"  ⚠️ Transaktionsdetails nicht geöffnet")
             continue
 
         # Download-URL aus dem Widget-Button extrahieren
@@ -183,7 +183,7 @@ def download_google_invoices(page, entries: list[dict], download_dir: Path) -> l
         }""")
 
         if not data_url:
-            print(f"  Kein Rechnungs-Download verfügbar")
+            print(f"  ⚠️ Kein Rechnungs-Download verfügbar")
             # Detail-Panel schliessen
             iframe.evaluate("""() => {
                 const close = document.querySelector('[aria-label="Schließen"], [aria-label="Close"]');
@@ -203,9 +203,9 @@ def download_google_invoices(page, entries: list[dict], download_dir: Path) -> l
         if pdf_bytes and len(pdf_bytes) > 500 and pdf_bytes[:5] == b"%PDF-":
             save_path.write_bytes(pdf_bytes)
             results.append((entry, save_path))
-            print(f"  -> {fname} ({len(pdf_bytes) / 1024:.1f} KB)")
+            print(f"  📎 {fname} ({len(pdf_bytes) / 1024:.1f} KB)")
         else:
-            print(f"  Rechnung-Download fehlgeschlagen")
+            print(f"  ❌ Rechnung-Download fehlgeschlagen")
 
         # Detail-Panel schliessen
         iframe.evaluate("""() => {
@@ -216,5 +216,5 @@ def download_google_invoices(page, entries: list[dict], download_dir: Path) -> l
         time.sleep(1)
 
     if results:
-        print(f"  {len(results)} Google-Rechnung(en) heruntergeladen")
+        print(f"  ✅ {len(results)} Google-Rechnung(en) heruntergeladen")
     return results

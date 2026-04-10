@@ -33,10 +33,7 @@ fi
 
 source .venv/bin/activate
 
-# --- Log-Datei ---
-LOG_DIR="$SCRIPT_DIR/logs"
-mkdir -p "$LOG_DIR"
-LOG_FILE="$LOG_DIR/run_$(date +%Y%m%d_%H%M%S).log"
+# --- Log-Datei wird von Python (src/logger.py) erstellt ---
 
 # --- Chrome Canary CDP ---
 CDP_URL="${CDP_URL:-http://localhost:9222}"
@@ -105,7 +102,6 @@ if [ -z "$MC_PDF_ARG" ]; then
 fi
 
 echo "MC-PDF: $MC_PDF_ARG"
-echo "Log:    $LOG_FILE"
 echo ""
 
 # --- Unbuffered Output für Live-Updates ---
@@ -124,9 +120,4 @@ if ! echo "$*" | grep -q -- '--mc-pdf'; then
     ARGS+=(--mc-pdf "$MC_PDF_ARG")
 fi
 
-python expense_bot.py "${ARGS[@]}" 2>&1 | tee "$LOG_FILE"
-
-echo ""
-echo "════════════════════════════════════════"
-echo "Log gespeichert: $LOG_FILE"
-echo "════════════════════════════════════════"
+python expense_bot.py "${ARGS[@]}"

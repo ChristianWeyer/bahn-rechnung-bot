@@ -12,6 +12,7 @@ from pathlib import Path
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 from src.config import ADOBE_EMAIL, ADOBE_PASSWORD
+from src.util import parse_date
 
 
 BILLING_URL = "https://account.adobe.com/orders/billing-history"
@@ -19,7 +20,7 @@ BILLING_URL = "https://account.adobe.com/orders/billing-history"
 
 def _login_adobe(page, email: str, password: str) -> bool:
     """Login bei Adobe (email + password, mit 2FA-Support)."""
-    print("  Adobe Login ...")
+    print("  🔑 Adobe Login ...")
 
     # Email eingeben
     email_input = page.locator('input[name="username"], input[type="email"]')
@@ -43,49 +44,38 @@ def _login_adobe(page, email: str, password: str) -> bool:
             submit.first.click()
             page.wait_for_timeout(5000)
     except PlaywrightTimeout:
-        print("  Passwort-Feld nicht sichtbar")
+        print("  ⚠️ Passwort-Feld nicht sichtbar")
         return False
 
     # 2FA-Check
     if "challenge" in page.url or "mfa" in page.url or "verify" in page.url:
-        print("  Adobe 2FA erforderlich!")
-        print("  -> Bitte im Browser loesen. Warte max. 120s ...")
+        print("  📱 Adobe 2FA erforderlich!")
+        print("  → Bitte im Browser loesen. Warte max. 120s ...")
         try:
             page.wait_for_url(
                 lambda u: "account.adobe.com" in u and "challenge" not in u,
                 timeout=120000,
             )
         except PlaywrightTimeout:
-            print("  Adobe Login Timeout")
+            print("  ❌ Adobe Login Timeout")
             return False
 
     if "signin" in page.url or "auth" in page.url:
-        print("  Adobe Login fehlgeschlagen")
+        print("  ❌ Adobe Login fehlgeschlagen")
         return False
 
-    print("  Adobe Login erfolgreich")
+    print("  ✅ Adobe Login erfolgreich")
     return True
 
 
 def _parse_date(date_str: str) -> datetime | None:
-    """Parst Adobe-Datumsformate: 'Mar 21, 2026' oder 'DD.MM.YYYY'."""
-    if not date_str:
-        return None
-    clean = date_str.strip()
-    for fmt in ("%b %d, %Y", "%d.%m.%Y", "%d.%m.%y", "%B %d, %Y"):
-        try:
-            return datetime.strptime(clean, fmt)
-        except ValueError:
-            continue
-    return None
+    """Parst Adobe-Datumsformate — delegiert an zentrale parse_date()."""
+    return parse_date(date_str)
 
 
 def _parse_entry_date(date_str: str) -> datetime | None:
-    """Parst MC-Entry-Datum (DD.MM.YY)."""
-    try:
-        return datetime.strptime(date_str.strip(), "%d.%m.%y")
-    except (ValueError, TypeError):
-        return None
+    """Parst MC-Entry-Datum — delegiert an zentrale parse_date()."""
+    return parse_date(date_str)
 
 
 def _extract_rows(page) -> list[dict]:
@@ -152,7 +142,7 @@ def download_adobe_invoices(
     if not adobe_entries:
         return []
 
-    print(f"\n  Adobe: Suche {len(adobe_entries)} Rechnung(en) ...")
+    print(f"\n  🔍 Adobe: Suche {len(adobe_entries)} Rechnung(en) ...")
 
     page.goto(BILLING_URL, wait_until="domcontentloaded", timeout=30000)
     page.wait_for_timeout(5000)
@@ -165,8 +155,8 @@ def download_adobe_invoices(
             page.goto(BILLING_URL, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(5000)
         else:
-            print("  Adobe: Nicht eingeloggt und keine Credentials konfiguriert")
-            print("  -> ADOBE_EMAIL/ADOBE_PASSWORD setzen oder in Chrome Canary einloggen")
+            print("  ⚠️ Adobe: Nicht eingeloggt und keine Credentials konfiguriert")
+            print("  → ADOBE_EMAIL/ADOBE_PASSWORD setzen oder in Chrome Canary einloggen")
             return []
 
     # Warte auf Tabelle
@@ -174,7 +164,7 @@ def download_adobe_invoices(
         page.wait_for_selector('[role="grid"], table', timeout=15000)
         page.wait_for_timeout(2000)
     except PlaywrightTimeout:
-        print("  Adobe: Keine Rechnungstabelle gefunden")
+        print("  ⚠️ Adobe: Keine Rechnungstabelle gefunden")
         return []
 
     rows = _extract_rows(page)
@@ -216,25 +206,25 @@ def download_adobe_invoices(
                     best_idx = i
 
         if best_idx is None:
-            print(f"  Keine passende Rechnung gefunden")
+            print(f"  ⚠️ Keine passende Rechnung gefunden")
             continue
 
         matched_row = rows[best_idx]
-        print(f"  Match: {matched_row['date']} | {matched_row['order']} | {matched_row['amount']}")
+        print(f"  ✅ Match: {matched_row['date']} | {matched_row['order']} | {matched_row['amount']}")
 
         # Download-Button in der Zeile klicken (Index + 1 wegen Header-Zeile)
         downloaded = _click_download(page, best_idx, matched_row, download_dir, date_str)
         if downloaded:
             used_indices.add(best_idx)
             results.append((entry, downloaded))
-            print(f"  -> {downloaded.name} ({downloaded.stat().st_size / 1024:.1f} KB)")
+            print(f"  📎 {downloaded.name} ({downloaded.stat().st_size / 1024:.1f} KB)")
         else:
-            print(f"  Download fehlgeschlagen")
+            print(f"  ❌ Download fehlgeschlagen")
 
         time.sleep(1)
 
     if results:
-        print(f"  {len(results)} Adobe-Rechnung(en) heruntergeladen")
+        print(f"  ✅ {len(results)} Adobe-Rechnung(en) heruntergeladen")
     return results
 
 
@@ -245,7 +235,7 @@ def _click_download(page, row_idx: int, row_data: dict, download_dir: Path, date
         data_rows = page.locator('[role="grid"] [role="row"]:has([data-testid="formatted-date"])').all()
 
         if row_idx >= len(data_rows):
-            print(f"  Zeile {row_idx} nicht gefunden (nur {len(data_rows)} Zeilen)")
+            print(f"  ⚠️ Zeile {row_idx} nicht gefunden (nur {len(data_rows)} Zeilen)")
             return None
 
         target_row = data_rows[row_idx]
@@ -253,7 +243,7 @@ def _click_download(page, row_idx: int, row_data: dict, download_dir: Path, date
         # Download-Button: aria-label="Download PDF"
         dl_btn = target_row.locator('button[aria-label="Download PDF"]')
         if dl_btn.count() == 0:
-            print(f"  Kein Download-Button gefunden")
+            print(f"  ⚠️ Kein Download-Button gefunden")
             return None
         dl_btn = dl_btn.first
 
@@ -276,8 +266,8 @@ def _click_download(page, row_idx: int, row_data: dict, download_dir: Path, date
         return save_path
 
     except PlaywrightTimeout:
-        print(f"  Download-Timeout (kein Download ausgeloest)")
+        print(f"  ❌ Download-Timeout (kein Download ausgeloest)")
         return None
     except Exception as e:
-        print(f"  Fehler: {e}")
+        print(f"  ❌ Fehler: {e}")
         return None

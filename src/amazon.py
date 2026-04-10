@@ -20,7 +20,7 @@ SKIP_SELLERS = ["audible"]
 
 def _login_amazon(page, email: str, password: str) -> bool:
     """Login bei Amazon.de (mit 2FA-Unterstützung)."""
-    print("  Amazon Login ...")
+    print("  🔑 Amazon Login ...")
 
     email_input = page.locator('input[name="email"], input#ap_email')
     if email_input.count() > 0:
@@ -39,22 +39,22 @@ def _login_amazon(page, email: str, password: str) -> bool:
             page.wait_for_timeout(3000)
 
     if "ap/cvf" in page.url or "ap/mfa" in page.url:
-        print("  Amazon 2FA/CAPTCHA erforderlich!")
-        print("  -> Bitte im Browser loesen. Warte max. 120s ...")
+        print("  📱 Amazon 2FA/CAPTCHA erforderlich!")
+        print("  → Bitte im Browser loesen. Warte max. 120s ...")
         try:
             page.wait_for_url(
                 lambda u: "your-orders" in u or "gp/css" in u or "amazon.de/?ref" in u,
                 timeout=120000,
             )
         except PlaywrightTimeout:
-            print("  Amazon Login Timeout")
+            print("  ❌ Amazon Login Timeout")
             return False
 
     if "ap/signin" in page.url:
-        print("  Amazon Login fehlgeschlagen")
+        print("  ❌ Amazon Login fehlgeschlagen")
         return False
 
-    print("  Amazon Login erfolgreich")
+    print("  ✅ Amazon Login erfolgreich")
     return True
 
 
@@ -174,7 +174,7 @@ def download_amazon_invoices(
     if not amazon_entries:
         return []
 
-    print(f"\n  Amazon.de: Suche {len(amazon_entries)} Rechnung(en) ...")
+    print(f"\n  🔍 Amazon.de: Suche {len(amazon_entries)} Rechnung(en) ...")
 
     page.goto(ORDERS_URL, wait_until="domcontentloaded", timeout=60000)
     page.wait_for_timeout(3000)
@@ -236,10 +236,10 @@ def download_amazon_invoices(
         next_btn.first.click()
         page.wait_for_timeout(3000)
 
-    print(f"  {total_orders} Bestellungen, {len(order_invoices)} mit Rechnung ({page_num + 1} Seite(n))")
+    print(f"  ✅ {total_orders} Bestellungen, {len(order_invoices)} mit Rechnung ({page_num + 1} Seite(n))")
 
     if not order_invoices:
-        print("  Keine Bestellungen mit Rechnung gefunden")
+        print("  ⚠️ Keine Bestellungen mit Rechnung gefunden")
         return []
 
     # Schritt 2: Pro MC-Entry die PASSENDE Bestellung per Betrag finden und downloaden
@@ -272,7 +272,7 @@ def download_amazon_invoices(
                     break
 
         if not best_invoice:
-            print(f"       Keine passende Bestellung gefunden")
+            print(f"       ⚠️ Keine passende Bestellung gefunden")
             continue
 
         oid = best_invoice["order_id"]
@@ -282,16 +282,16 @@ def download_amazon_invoices(
             if _validate_amazon_pdf(downloaded_path):
                 used_orders.add(oid)
                 results.append((entry, downloaded_path))
-                print(f"       -> {downloaded_path.name} {match_info}")
+                print(f"       📎 {downloaded_path.name} {match_info}")
             else:
-                print(f"       PDF zu klein/kaputt (uebersprungen)")
+                print(f"       ⚠️ PDF zu klein/kaputt (uebersprungen)")
                 downloaded_path.unlink(missing_ok=True)
         else:
-            print(f"       Download fehlgeschlagen fuer {oid}")
+            print(f"       ❌ Download fehlgeschlagen fuer {oid}")
 
         time.sleep(1)
 
-    print(f"  {len(results)} Amazon-Rechnung(en) heruntergeladen")
+    print(f"  ✅ {len(results)} Amazon-Rechnung(en) heruntergeladen")
     return results
 
 
@@ -323,9 +323,9 @@ def _download_pdf(page, pdf_url: str, order_id: str, date_str: str, download_dir
                 save_path.write_bytes(resp.content)
                 return save_path
             else:
-                print(f"       HTTP {resp.status_code} fuer {order_id} ({len(resp.content)} bytes)")
+                print(f"       ❌ HTTP {resp.status_code} beim Download fuer {order_id} ({len(resp.content)} bytes)")
         except Exception as e:
-            print(f"       Download fehlgeschlagen fuer {order_id}: {e}")
+            print(f"       ❌ Download fehlgeschlagen fuer {order_id}: {e}")
 
     elif "print.html" in pdf_url:
         try:

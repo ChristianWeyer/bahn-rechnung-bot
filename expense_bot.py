@@ -31,6 +31,7 @@ from src.timer import Timer
 from src.history import cleanup_old_invoices
 from src.auth import get_graph_token
 from src.bahn import login, download_invoices
+from src.logger import setup_logging
 from src.mail import send_email
 from src.result import RunResult
 
@@ -80,6 +81,10 @@ def main():
                         help="Nur gelb markierte Eintraege aus dem MC-PDF extrahieren")
     args = parser.parse_args()
 
+    # Set up logging to both stdout and log file
+    log_dir = Path(__file__).resolve().parent / "logs"
+    log_file = setup_logging(log_dir)
+
     timer = Timer()
     result = RunResult()
 
@@ -94,7 +99,8 @@ def main():
     run_dir = _cfg.DOWNLOAD_DIR / run_timestamp
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    # Bahn-Modul nutzt DOWNLOAD_DIR direkt aus config — zur Laufzeit umbiegen
+    # Legacy: Bahn-Modul nutzt _cfg.DOWNLOAD_DIR intern als Fallback.
+    # TODO: Remove once bahn.py is fully migrated to parameter passing.
     _cfg.DOWNLOAD_DIR = run_dir
     _cfg.BELEGE_DIR = run_dir
 
@@ -128,7 +134,7 @@ def main():
         if run_dir.exists() and not any(run_dir.iterdir()):
             run_dir.rename(named_dir)
             run_dir = named_dir
-            _cfg.DOWNLOAD_DIR = run_dir
+            _cfg.DOWNLOAD_DIR = run_dir  # legacy fallback for bahn.py
             _cfg.BELEGE_DIR = run_dir
         print(f"Belege-Ordner: {run_dir}")
         print(f"\nLese Mastercard-PDF: {mc_path}")
@@ -148,11 +154,11 @@ def main():
     # -- Outlook Belege --
     html_fallbacks = []
     if non_db_raw:
-        html_fallbacks = _fetch_outlook(non_db_raw, result, timer)
+        html_fallbacks = _fetch_outlook(non_db_raw, result, timer, download_dir=run_dir)
 
     # -- Spiegel (eigener Browser) --
     if non_db_raw:
-        _fetch_spiegel(non_db_raw, result, timer, args.headed)
+        _fetch_spiegel(non_db_raw, result, timer, args.headed, download_dir=run_dir)
 
     # -- Browser-Automation --
     with sync_playwright() as p:
@@ -178,9 +184,9 @@ def main():
                     print(f"\nLogin erfolgreich!\nFertig: {timer.elapsed()}")
                     return
 
-                _fetch_bahn(page, timer, result, booking_refs, args.all)
-                _fetch_amazon(context, result, timer)
-                _fetch_portals(page, result, timer)
+                _fetch_bahn(page, timer, result, booking_refs, args.all, download_dir=run_dir)
+                _fetch_amazon(context, result, timer, download_dir=run_dir)
+                _fetch_portals(page, result, timer, download_dir=run_dir)
             finally:
                 page.close()
                 browser.close()
@@ -200,9 +206,9 @@ def main():
                     print(f"\nFertig: {timer.elapsed()}")
                     return
 
-                _fetch_bahn(page, timer, result, booking_refs, args.all)
-                _fetch_amazon(context, result, timer)
-                _fetch_portals(page, result, timer)
+                _fetch_bahn(page, timer, result, booking_refs, args.all, download_dir=run_dir)
+                _fetch_amazon(context, result, timer, download_dir=run_dir)
+                _fetch_portals(page, result, timer, download_dir=run_dir)
             finally:
                 context.close()
 
@@ -255,7 +261,7 @@ def main():
 
 # --- Fetch-Funktionen mit direkter Result-Zuordnung ---
 
-def _fetch_outlook(non_db_raw: list[dict], result: RunResult, timer: Timer) -> list[dict]:
+def _fetch_outlook(non_db_raw: list[dict], result: RunResult, timer: Timer, *, download_dir: Path) -> list[dict]:
     """Outlook Belege suchen und direkt im Result tracken.
 
     Returns:
@@ -264,7 +270,7 @@ def _fetch_outlook(non_db_raw: list[dict], result: RunResult, timer: Timer) -> l
     """
     from src.outlook import match_and_download_receipts
     token = get_graph_token()
-    outlook_results = match_and_download_receipts(token, non_db_raw, _cfg.DOWNLOAD_DIR)
+    outlook_results = match_and_download_receipts(token, non_db_raw, download_dir)
 
     html_fallbacks = []
     for m in outlook_results.get("matched", []):
@@ -287,9 +293,9 @@ def _fetch_outlook(non_db_raw: list[dict], result: RunResult, timer: Timer) -> l
     return html_fallbacks
 
 
-def _fetch_bahn(page, timer: Timer, result: RunResult, booking_refs: list[str] | None, download_all: bool):
+def _fetch_bahn(page, timer: Timer, result: RunResult, booking_refs: list[str] | None, download_all: bool, *, download_dir: Path):
     """DB Rechnungen downloaden und per Booking-Ref zuordnen."""
-    files, failed = download_invoices(page, timer, download_all=download_all, booking_refs=booking_refs)
+    files, failed = download_invoices(page, timer, download_all=download_all, booking_refs=booking_refs, download_dir=download_dir)
 
     # Zuordnung: Dateiname enthält die Booking-Ref
     for f in files:
@@ -315,7 +321,7 @@ def _fetch_bahn(page, timer: Timer, result: RunResult, booking_refs: list[str] |
                 break
 
 
-def _fetch_amazon(context, result: RunResult, timer: Timer):
+def _fetch_amazon(context, result: RunResult, timer: Timer, *, download_dir: Path):
     """Amazon Rechnungen downloaden — Scraper gibt (entry, file) Paare zurueck."""
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
     amazon_entries = [e for e in pending
@@ -325,7 +331,7 @@ def _fetch_amazon(context, result: RunResult, timer: Timer):
 
     from src.amazon import download_amazon_invoices
     amazon_page = context.new_page()
-    amazon_results = download_amazon_invoices(amazon_page, amazon_entries, _cfg.DOWNLOAD_DIR, AMAZON_EMAIL, AMAZON_PASSWORD)
+    amazon_results = download_amazon_invoices(amazon_page, amazon_entries, download_dir, AMAZON_EMAIL, AMAZON_PASSWORD)
     amazon_page.close()
 
     for entry, filepath in amazon_results:
@@ -335,24 +341,24 @@ def _fetch_amazon(context, result: RunResult, timer: Timer):
         timer.lap(f"Amazon ({len(amazon_results)} Rechnungen)")
 
 
-def _fetch_spiegel(non_db_raw: list[dict], result: RunResult, timer: Timer, headed: bool):
+def _fetch_spiegel(non_db_raw: list[dict], result: RunResult, timer: Timer, headed: bool, *, download_dir: Path):
     """Spiegel Rechnung — eigener Browser-Context."""
     from src.spiegel import download_spiegel_invoices
-    spiegel_results = download_spiegel_invoices(non_db_raw, _cfg.DOWNLOAD_DIR, headed=headed)
+    spiegel_results = download_spiegel_invoices(non_db_raw, download_dir, headed=headed)
     for entry, filepath in spiegel_results:
         result.mark_matched(entry, [filepath], source="spiegel")
     if spiegel_results:
         timer.lap(f"Spiegel ({len(spiegel_results)} PDFs)")
 
 
-def _fetch_portals(page, result: RunResult, timer: Timer):
+def _fetch_portals(page, result: RunResult, timer: Timer, *, download_dir: Path):
     """Alle Portal-Scraper — jeder bekommt nur seine pending Entries."""
     total = 0
 
     # Cloudflare (API, kein Browser)
     from src.cloudflare import download_cloudflare_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    cf_results = download_cloudflare_invoices(pending, _cfg.DOWNLOAD_DIR)
+    cf_results = download_cloudflare_invoices(pending, download_dir)
     for entry, filepath in cf_results:
         result.mark_matched(entry, [filepath], source="cloudflare-api")
     total += len(cf_results)
@@ -360,7 +366,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # OpenAI + Adobe (Portal JSON configs)
     from src.portal import download_portal_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    portal_results = download_portal_invoices(page, pending, _cfg.DOWNLOAD_DIR)
+    portal_results = download_portal_invoices(page, pending, download_dir)
     for entry, filepath, portal_id in portal_results:
         result.mark_matched(entry, [filepath], source=f"portal:{portal_id}")
     total += len(portal_results)
@@ -368,7 +374,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # Heise
     from src.heise import download_heise_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    heise_results = download_heise_invoices(page, pending, _cfg.DOWNLOAD_DIR)
+    heise_results = download_heise_invoices(page, pending, download_dir)
     for entry, filepath in heise_results:
         result.mark_matched(entry, [filepath], source="heise")
     total += len(heise_results)
@@ -376,7 +382,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # Adobe
     from src.adobe import download_adobe_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    adobe_results = download_adobe_invoices(page, pending, _cfg.DOWNLOAD_DIR)
+    adobe_results = download_adobe_invoices(page, pending, download_dir)
     for entry, filepath in adobe_results:
         result.mark_matched(entry, [filepath], source="adobe")
     total += len(adobe_results)
@@ -384,7 +390,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # Figma
     from src.figma import download_figma_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    figma_results = download_figma_invoices(page, pending, _cfg.DOWNLOAD_DIR)
+    figma_results = download_figma_invoices(page, pending, download_dir)
     for entry, filepath in figma_results:
         result.mark_matched(entry, [filepath], source="figma")
     total += len(figma_results)
@@ -392,7 +398,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # Google (CDP iframe)
     from src.google import download_google_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    google_results = download_google_invoices(page, pending, _cfg.DOWNLOAD_DIR)
+    google_results = download_google_invoices(page, pending, download_dir)
     for entry, filepath in google_results:
         result.mark_matched(entry, [filepath], source="google")
     total += len(google_results)
@@ -400,7 +406,7 @@ def _fetch_portals(page, result: RunResult, timer: Timer):
     # Audible
     from src.audible import download_audible_invoices
     pending = [er.entry for er in result.non_db_entries if er.status == "pending"]
-    audible_results = download_audible_invoices(page, pending, _cfg.DOWNLOAD_DIR)
+    audible_results = download_audible_invoices(page, pending, download_dir)
     for entry, filepath in audible_results:
         result.mark_matched(entry, [filepath], source="audible")
     total += len(audible_results)

@@ -15,7 +15,7 @@ PLENIGO_BASE = "https://selfservice.plenigo.com"
 
 def _login_heise(page, email: str, password: str) -> bool:
     """Login bei Heise SSO (email + password)."""
-    print("  Heise Login ...")
+    print("  🔑 Heise Login ...")
 
     email_input = page.locator('input[name="email"], input[type="email"], input#username')
     if email_input.count() > 0:
@@ -33,10 +33,10 @@ def _login_heise(page, email: str, password: str) -> bool:
         page.wait_for_timeout(5000)
 
     if "anmelden" in page.url or "login" in page.url:
-        print("  Heise Login fehlgeschlagen")
+        print("  ❌ Heise Login fehlgeschlagen")
         return False
 
-    print("  Heise Login erfolgreich")
+    print("  ✅ Heise Login erfolgreich")
     return True
 
 
@@ -59,7 +59,7 @@ def download_heise_invoices(
     if not heise_entries:
         return []
 
-    print(f"\n  Heise: Suche {len(heise_entries)} Rechnung(en) ...")
+    print(f"\n  🔍 Heise: Suche {len(heise_entries)} Rechnung(en) ...")
 
     page.goto(HEISE_URL, wait_until="domcontentloaded", timeout=30000)
     page.wait_for_timeout(5000)
@@ -72,19 +72,19 @@ def download_heise_invoices(
             page.goto(HEISE_URL, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(5000)
         else:
-            print("  Heise: Nicht eingeloggt und keine Credentials konfiguriert")
-            print("  -> HEISE_EMAIL/HEISE_PASSWORD setzen oder op://Private/Heise konfigurieren")
+            print("  ⚠️ Heise: Nicht eingeloggt und keine Credentials konfiguriert")
+            print("  → HEISE_EMAIL/HEISE_PASSWORD setzen oder op://Private/Heise konfigurieren")
             return []
 
     iframe = page.locator('iframe[src*="plenigo"]')
     if iframe.count() == 0:
-        print("  Heise: Plenigo-iframe nicht gefunden (nicht eingeloggt?)")
-        print("  -> Bitte in Chrome Canary bei heise.de einloggen")
+        print("  ⚠️ Heise: Plenigo-iframe nicht gefunden (nicht eingeloggt?)")
+        print("  → Bitte in Chrome Canary bei heise.de einloggen")
         return []
 
     iframe_src = iframe.first.get_attribute("src") or ""
     if not iframe_src:
-        print("  Keine iframe-URL")
+        print("  ⚠️ Keine iframe-URL")
         return []
 
     page.goto(iframe_src, wait_until="domcontentloaded", timeout=30000)
@@ -129,13 +129,13 @@ def download_heise_invoices(
                     save_path.write_bytes(resp.content)
                     results.append((entry, save_path))
                     used_links.add(href)
-                    print(f"  -> {fname} ({len(resp.content) / 1024:.1f} KB)")
+                    print(f"  📎 {fname} ({len(resp.content) / 1024:.1f} KB)")
                     break
                 else:
-                    print(f"  HTTP {resp.status_code}, {len(resp.content)} bytes")
+                    print(f"  ❌ HTTP {resp.status_code} beim Download, {len(resp.content)} bytes")
             except Exception as e:
-                print(f"  Download fehlgeschlagen: {e}")
+                print(f"  ❌ Download fehlgeschlagen: {e}")
 
     if results:
-        print(f"  {len(results)} Heise-Rechnung(en) heruntergeladen")
+        print(f"  ✅ {len(results)} Heise-Rechnung(en) heruntergeladen")
     return results

@@ -211,9 +211,11 @@ def _check_page_status(page, booking_ref: str) -> str:
     return "no_invoice"
 
 
-def download_invoice_by_ref(page, booking_ref: str, timer: Timer) -> Path | None:
+def download_invoice_by_ref(page, booking_ref: str, timer: Timer, *, download_dir: Path | None = None) -> Path | None:
     """Öffnet eine Buchung per Auftragsnummer und lädt die Rechnung herunter."""
-    _cfg.DOWNLOAD_DIR.mkdir(exist_ok=True)
+    if download_dir is None:
+        download_dir = _cfg.DOWNLOAD_DIR  # legacy fallback
+    download_dir.mkdir(exist_ok=True)
 
     reise_url = f"https://www.bahn.de/buchung/reise?auftragsnummer={booking_ref}"
     page.goto("about:blank", wait_until="domcontentloaded", timeout=10000)
@@ -342,13 +344,15 @@ def download_invoice_by_ref(page, booking_ref: str, timer: Timer) -> Path | None
             return None
 
     if status == "download":
-        return _do_pdf_download(page, booking_ref)
+        return _do_pdf_download(page, booking_ref, download_dir=download_dir)
 
     return None
 
 
-def _do_pdf_download(page, booking_ref: str) -> Path | None:
+def _do_pdf_download(page, booking_ref: str, *, download_dir: Path | None = None) -> Path | None:
     """Führt den eigentlichen PDF-Download durch."""
+    if download_dir is None:
+        download_dir = _cfg.DOWNLOAD_DIR  # legacy fallback
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     download_btn = page.locator(DOWNLOAD_BTN_SELECTOR)
@@ -368,7 +372,7 @@ def _do_pdf_download(page, booking_ref: str) -> Path | None:
                 download_btn.first.click()
             download = download_info.value
             fname = download.suggested_filename or f"rechnung_{booking_ref}_{timestamp}.pdf"
-            save_path = _cfg.DOWNLOAD_DIR / f"{booking_ref}_{fname}"
+            save_path = download_dir / f"{booking_ref}_{fname}"
             download.save_as(str(save_path))
             print(f"    ✅ PDF heruntergeladen: {save_path.name}")
             return save_path
@@ -380,7 +384,7 @@ def _do_pdf_download(page, booking_ref: str) -> Path | None:
 
     def on_download(download):
         fname = download.suggested_filename or f"rechnung_{booking_ref}_{timestamp}.pdf"
-        path = _cfg.DOWNLOAD_DIR / f"{booking_ref}_{fname}"
+        path = download_dir / f"{booking_ref}_{fname}"
         download.save_as(str(path))
         downloaded_file[0] = path
         print(f"    ✅ PDF heruntergeladen (event): {fname}")
@@ -394,7 +398,7 @@ def _do_pdf_download(page, booking_ref: str) -> Path | None:
             print("    → Download-Button geklickt ...")
         download = download_info.value
         fname = download.suggested_filename or f"rechnung_{booking_ref}_{timestamp}.pdf"
-        save_path = _cfg.DOWNLOAD_DIR / f"{booking_ref}_{fname}"
+        save_path = download_dir / f"{booking_ref}_{fname}"
         download.save_as(str(save_path))
         print(f"    ✅ PDF heruntergeladen: {save_path.name}")
         _close_extra_tabs(page, pages_before)
@@ -421,7 +425,7 @@ def _do_pdf_download(page, booking_ref: str) -> Path | None:
                 if response:
                     body = response.body()
                     fname = f"rechnung_{booking_ref}_{timestamp}.pdf"
-                    save_path = _cfg.DOWNLOAD_DIR / fname
+                    save_path = download_dir / fname
                     save_path.write_bytes(body)
                     print(f"    ✅ PDF gespeichert: {fname}")
                     try:
@@ -443,7 +447,7 @@ def _do_pdf_download(page, booking_ref: str) -> Path | None:
                         new_dl_btn.first.click()
                     download = dl_info.value
                     fname = download.suggested_filename or f"rechnung_{booking_ref}_{timestamp}.pdf"
-                    save_path = _cfg.DOWNLOAD_DIR / f"{booking_ref}_{fname}"
+                    save_path = download_dir / f"{booking_ref}_{fname}"
                     download.save_as(str(save_path))
                     print(f"    ✅ PDF heruntergeladen (neuer Tab): {save_path.name}")
                     try:
@@ -478,9 +482,11 @@ def _close_extra_tabs(page, expected_count: int):
         pass
 
 
-def download_invoices(page, timer: Timer, download_all: bool = False, booking_refs: list[str] | None = None) -> tuple[list[Path], list[str]]:
+def download_invoices(page, timer: Timer, download_all: bool = False, booking_refs: list[str] | None = None, *, download_dir: Path | None = None) -> tuple[list[Path], list[str]]:
     """Navigiert zu 'Meine Reisen' und lädt Rechnungen herunter."""
-    _cfg.DOWNLOAD_DIR.mkdir(exist_ok=True)
+    if download_dir is None:
+        download_dir = _cfg.DOWNLOAD_DIR  # legacy fallback
+    download_dir.mkdir(exist_ok=True)
     history = load_history()
     downloaded_files = []
 
@@ -490,7 +496,7 @@ def download_invoices(page, timer: Timer, download_all: bool = False, booking_re
         for idx, ref in enumerate(booking_refs, 1):
             print(f"\n  🔍 [{idx}/{len(booking_refs)}] Suche Buchung {ref} ...")
             dl_start = time.monotonic()
-            filepath = download_invoice_by_ref(page, ref, timer)
+            filepath = download_invoice_by_ref(page, ref, timer, download_dir=download_dir)
             if filepath:
                 if is_known_file(filepath, history):
                     print(f"  ⏭️  Bereits verarbeitet: {ref}")
@@ -511,7 +517,7 @@ def download_invoices(page, timer: Timer, download_all: bool = False, booking_re
             for idx, ref in enumerate(failed_refs, 1):
                 print(f"\n  🔁 [Retry {retry_round}.{idx}/{len(failed_refs)}] Suche Buchung {ref} ...")
                 dl_start = time.monotonic()
-                filepath = download_invoice_by_ref(page, ref, timer)
+                filepath = download_invoice_by_ref(page, ref, timer, download_dir=download_dir)
                 if filepath:
                     if is_known_file(filepath, history):
                         print(f"  ⏭️  Bereits verarbeitet: {ref}")
@@ -574,7 +580,7 @@ def download_invoices(page, timer: Timer, download_all: bool = False, booking_re
                 download = download_info.value
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 original_name = download.suggested_filename or f"rechnung_{timestamp}.pdf"
-                save_path = _cfg.DOWNLOAD_DIR / f"{timestamp}_{original_name}"
+                save_path = download_dir / f"{timestamp}_{original_name}"
                 download.save_as(save_path)
 
                 if is_known_file(save_path, history):

@@ -36,7 +36,7 @@ def download_audible_invoices(
     if not audible_entries:
         return []
 
-    print(f"\n  Audible: Suche {len(audible_entries)} Rechnung(en) ...")
+    print(f"\n  🔍 Audible: Suche {len(audible_entries)} Rechnung(en) ...")
 
     page.goto(MEMBERSHIP_URL, wait_until="domcontentloaded", timeout=30000)
     page.wait_for_timeout(5000)
@@ -49,7 +49,7 @@ def download_audible_invoices(
             page.goto(MEMBERSHIP_URL, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(5000)
         else:
-            print("  Audible: Nicht eingeloggt und keine Amazon-Credentials konfiguriert")
+            print("  ⚠️ Audible: Nicht eingeloggt und keine Amazon-Credentials konfiguriert")
             return []
 
     detail_links = page.locator('a[href*="order-details"]')
@@ -105,19 +105,19 @@ def download_audible_invoices(
                             save_path.write_bytes(resp.content)
                             results.append((entry, save_path))
                             used_hrefs.add(href)
-                            print(f"  -> {fname} ({len(resp.content) / 1024:.1f} KB)")
+                            print(f"  📎 {fname} ({len(resp.content) / 1024:.1f} KB)")
                             detail_page.close()
                             break
             except Exception as e:
-                print(f"  Fehler: {e}")
+                print(f"  ❌ Fehler: {e}")
             finally:
                 if not detail_page.is_closed():
                     detail_page.close()
         else:
-            print(f"  Keine passende Rechnung gefunden")
+            print(f"  ⚠️ Keine passende Rechnung gefunden")
 
         time.sleep(0.5)
 
     if results:
-        print(f"  {len(results)} Audible-Rechnung(en) heruntergeladen")
+        print(f"  ✅ {len(results)} Audible-Rechnung(en) heruntergeladen")
     return results

@@ -18,6 +18,7 @@ from pathlib import Path
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 from src.config import OPENAI_EMAIL, OPENAI_PASSWORD, PAGE_TIMEOUT, DOWNLOAD_TIMEOUT, LOGIN_TIMEOUT
+from src.util import parse_date
 
 
 PORTALS_DIR = Path(__file__).parent.parent / "portals"
@@ -44,7 +45,7 @@ def _login_portal(page, portal_id: str, config: dict, email: str, password: str)
     homepage = config.get("homepage", "")
     login_url = config.get("login_url", homepage)
 
-    print(f"     {name} Login ...")
+    print(f"     🔑 {name} Login ...")
 
     if login_url:
         page.goto(login_url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT)
@@ -81,27 +82,27 @@ def _login_portal(page, portal_id: str, config: dict, email: str, password: str)
             submit.first.click()
             page.wait_for_timeout(5000)
     except PlaywrightTimeout:
-        print(f"     Passwort-Feld nicht sichtbar")
+        print(f"     ⚠️ Passwort-Feld nicht sichtbar")
         return False
 
     # 2FA-Check
     if any(k in page.url for k in ("challenge", "mfa", "two-factor", "verify", "2fa")):
-        print(f"     {name} 2FA erforderlich!")
-        print(f"     -> Bitte im Browser loesen. Warte max. 120s ...")
+        print(f"     📱 {name} 2FA erforderlich!")
+        print(f"     → Bitte im Browser loesen. Warte max. 120s ...")
         try:
             page.wait_for_url(
                 lambda u: not any(k in u for k in ("challenge", "mfa", "two-factor", "verify", "2fa", "signin", "login")),
                 timeout=LOGIN_TIMEOUT,
             )
         except PlaywrightTimeout:
-            print(f"     {name} Login Timeout")
+            print(f"     ❌ {name} Login Timeout")
             return False
 
     if "login" in page.url or "signin" in page.url or "auth" in page.url:
-        print(f"     {name} Login fehlgeschlagen")
+        print(f"     ❌ {name} Login fehlgeschlagen")
         return False
 
-    print(f"     {name} Login erfolgreich")
+    print(f"     ✅ {name} Login erfolgreich")
     return True
 
 
@@ -207,25 +208,13 @@ def _extract_invoices(page, config: dict) -> list[dict]:
 
 
 def _parse_invoice_date(date_text: str) -> datetime | None:
-    """Parst verschiedene Datumsformate aus Invoice-Tabellen."""
-    if not date_text:
-        return None
-    # Gängige Formate: "Mar 9, 2026", "2026-03-09", "09.03.2026", "Mar 9, 2026, 1:31 PM"
-    clean = re.sub(r',\s*\d{1,2}:\d{2}\s*(AM|PM|am|pm)', '', date_text).strip()
-    for fmt in ("%b %d, %Y", "%Y-%m-%d", "%d.%m.%Y", "%d.%m.%y", "%B %d, %Y"):
-        try:
-            return datetime.strptime(clean, fmt)
-        except ValueError:
-            continue
-    return None
+    """Parst verschiedene Datumsformate — delegiert an zentrale parse_date()."""
+    return parse_date(date_text)
 
 
 def _parse_entry_date(date_str: str) -> datetime | None:
-    """Parst MC-Entry-Datum (DD.MM.YY)."""
-    try:
-        return datetime.strptime(date_str, "%d.%m.%y")
-    except (ValueError, TypeError):
-        return None
+    """Parst MC-Entry-Datum — delegiert an zentrale parse_date()."""
+    return parse_date(date_str)
 
 
 def _match_invoice_to_entry(invoices: list[dict], entry: dict) -> dict | None:
@@ -414,7 +403,7 @@ def download_portal_invoices(
     if not matched_configs:
         return []
 
-    print(f"\n  Portal-Download: {len(matched_configs)} Vendor mit Config ...")
+    print(f"\n  🔍 Portal-Download: {len(matched_configs)} Vendor mit Config ...")
 
     for portal_id, data in matched_configs.items():
         config = data["config"]
@@ -431,11 +420,11 @@ def download_portal_invoices(
                     continue
                 # Nach Login erneut pruefen
                 if not _is_authenticated(page, config):
-                    print(f"     {name}: Login scheinbar erfolgreich, aber Auth-Check schlaegt fehl")
+                    print(f"     ⚠️ {name}: Login scheinbar erfolgreich, aber Auth-Check schlaegt fehl")
                     continue
             else:
-                print(f"     Nicht eingeloggt bei {name}")
-                print(f"     -> Credentials in 1Password konfigurieren oder in Chrome Canary einloggen")
+                print(f"     ⚠️ Nicht eingeloggt bei {name}")
+                print(f"     → Credentials in 1Password konfigurieren oder in Chrome Canary einloggen")
                 continue
 
         # Billing-Seite laden
@@ -474,15 +463,15 @@ def download_portal_invoices(
                 if path:
                     matched_invoice["_used"] = True
                     results.append((entry, path, portal_id))
-                    print(f"     -> {path.name} ({path.stat().st_size / 1024:.1f} KB)")
+                    print(f"     📎 {path.name} ({path.stat().st_size / 1024:.1f} KB)")
                 else:
-                    print(f"     Download fehlgeschlagen")
+                    print(f"     ❌ Download fehlgeschlagen")
             else:
-                print(f"     Keine passende Invoice gefunden")
+                print(f"     ⚠️ Keine passende Invoice gefunden")
 
         time.sleep(1)
 
     if results:
-        print(f"\n  {len(results)} Portal-Rechnung(en) heruntergeladen")
+        print(f"\n  ✅ {len(results)} Portal-Rechnung(en) heruntergeladen")
 
     return results
