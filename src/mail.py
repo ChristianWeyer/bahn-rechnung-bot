@@ -7,7 +7,8 @@ from pathlib import Path
 
 import requests
 
-from src.config import RECIPIENT_EMAIL, GRAPH_SEND_URL, DOWNLOAD_DIR
+import src.config as _cfg
+from src.config import RECIPIENT_EMAIL, GRAPH_SEND_URL
 from src.auth import get_graph_token
 from src.timer import Timer
 from src.result import RunResult
@@ -175,5 +176,5 @@ def send_email(result: RunResult, timer: Timer, dry_run: bool = False, cc_email:
     else:
         print(f"  Email-Versand fehlgeschlagen (HTTP {response.status_code})")
         print(f"     {response.text[:200]}")
-        print("     Belege sind trotzdem gespeichert in:", DOWNLOAD_DIR)
+        print("     Belege sind trotzdem gespeichert in:", _cfg.DOWNLOAD_DIR)
         sys.exit(1)
