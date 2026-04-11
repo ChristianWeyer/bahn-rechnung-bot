@@ -13,15 +13,24 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 # ─── 1Password CLI ──────────────────────────────────────────
 
 def _op_read(ref: str) -> str | None:
-    """Liest ein Secret aus 1Password CLI. Gibt None zurück wenn nicht verfügbar."""
+    """Liest ein Secret aus 1Password CLI. Gibt None zurück wenn nicht verfügbar.
+
+    Timeout 30s — op kann bei langsamer Netzwerkverbindung oder wenn die
+    1Password-App noch nicht bereit ist, länger brauchen.
+    """
     if not ref:
         return None
     try:
-        result = _sp.run(["op", "read", ref], capture_output=True, text=True, timeout=10)
+        result = _sp.run(["op", "read", ref], capture_output=True, text=True, timeout=30)
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
-    except (FileNotFoundError, _sp.TimeoutExpired):
-        pass
+        if result.stderr and "not signed in" not in result.stderr.lower():
+            # Nur echte Fehler loggen (nicht "not signed in" das spammen würde)
+            import sys as _sys
+            print(f"  ⚠️  op read '{ref}' failed (rc={result.returncode}): {result.stderr.strip()[:100]}", file=_sys.stderr)
+    except (FileNotFoundError, _sp.TimeoutExpired) as e:
+        import sys as _sys
+        print(f"  ⚠️  op read '{ref}' exception: {type(e).__name__}", file=_sys.stderr)
     return None
 
 

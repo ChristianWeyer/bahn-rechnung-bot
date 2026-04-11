@@ -187,7 +187,7 @@ def _is_authenticated(page, config: dict) -> bool:
 
     try:
         page.goto(check_url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT)
-        page.wait_for_timeout(5000)
+        page.wait_for_timeout(3000)
 
         # URL-basierter Check: wurden wir auf eine Login-Seite umgeleitet?
         url_lower = page.url.lower()
@@ -201,9 +201,13 @@ def _is_authenticated(page, config: dict) -> bool:
         if expected_host and actual_host and expected_host != actual_host:
             return False
 
-        # Selector-basierter Check (falls konfiguriert)
+        # Selector-basierter Check: bis zu 15s warten bis SPA geladen hat
         if check_selector:
-            return page.locator(check_selector).count() > 0
+            try:
+                page.wait_for_selector(check_selector, timeout=15000, state="attached")
+                return True
+            except PlaywrightTimeout:
+                return False
 
         return True
     except PlaywrightTimeout:
