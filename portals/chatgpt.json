@@ -4,7 +4,7 @@
     "homepage": "https://chatgpt.com",
     "billing_url": "https://chatgpt.com/admin/billing?tab=invoices",
     "auth_check_url": "https://chatgpt.com/admin/billing",
-    "auth_check_selector": "main",
+    "auth_check_selector": "a[href*='stripe.com']",
     "match_keywords": ["CHATGPT"],
     "exclude_keywords": [],
     "invoices": {

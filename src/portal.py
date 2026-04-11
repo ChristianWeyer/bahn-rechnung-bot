@@ -69,7 +69,7 @@ def _login_portal(page, portal_id: str, config: dict, email: str, password: str)
     # Passwort eingeben
     pw_input = page.locator('input[name="password"], input[type="password"]')
     try:
-        pw_input.first.wait_for(state="visible", timeout=10000)
+        pw_input.first.wait_for(state="visible", timeout=8000)
         pw_input.first.fill(password)
         page.wait_for_timeout(500)
 
@@ -82,8 +82,17 @@ def _login_portal(page, portal_id: str, config: dict, email: str, password: str)
             submit.first.click()
             page.wait_for_timeout(5000)
     except PlaywrightTimeout:
-        print(f"     ⚠️ Passwort-Feld nicht sichtbar")
-        return False
+        # Auto-Login nicht möglich — manuellen Login abwarten
+        print(f"     📱 {name}: Auto-Login nicht möglich")
+        print(f"     → Bitte manuell in Chrome Canary einloggen. Warte max. 120s ...")
+        try:
+            page.wait_for_url(
+                lambda u: not any(k in u.lower() for k in ("login", "signin", "auth", "sign-in")),
+                timeout=LOGIN_TIMEOUT,
+            )
+        except PlaywrightTimeout:
+            print(f"     ❌ {name} Login Timeout")
+            return False
 
     # 2FA-Check
     if any(k in page.url for k in ("challenge", "mfa", "two-factor", "verify", "2fa")):
@@ -138,7 +147,11 @@ def _match_vendor(config: dict, vendor_name: str) -> bool:
 
 
 def _is_authenticated(page, config: dict) -> bool:
-    """Prüft ob der User im Portal eingeloggt ist."""
+    """Prüft ob der User im Portal eingeloggt ist.
+
+    Strenger Check: URL muss gleich bleiben (kein Redirect auf Login) UND
+    der Selector muss matchen. Beides zusammen verhindert false-positives.
+    """
     check_url = config.get("auth_check_url")
     check_selector = config.get("auth_check_selector")
 
@@ -149,11 +162,19 @@ def _is_authenticated(page, config: dict) -> bool:
         page.goto(check_url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT)
         page.wait_for_timeout(5000)
 
-        # URL-basierter Check: sind wir auf der richtigen Seite geblieben?
-        if "login" in page.url or "auth" in page.url or "signin" in page.url:
+        # URL-basierter Check: wurden wir auf eine Login-Seite umgeleitet?
+        url_lower = page.url.lower()
+        if any(k in url_lower for k in ("login", "auth", "signin", "sign-in", "sign_in")):
             return False
 
-        # Selector-basierter Check
+        # URL-Check: sind wir noch auf der check_url Domain?
+        from urllib.parse import urlparse
+        expected_host = urlparse(check_url).netloc
+        actual_host = urlparse(page.url).netloc
+        if expected_host and actual_host and expected_host != actual_host:
+            return False
+
+        # Selector-basierter Check (falls konfiguriert)
         if check_selector:
             return page.locator(check_selector).count() > 0
 

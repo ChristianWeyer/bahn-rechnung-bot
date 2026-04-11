@@ -16,23 +16,57 @@ PLENIGO_BASE = "https://selfservice.plenigo.com"
 
 
 def _login_heise(page, email: str, password: str) -> bool:
-    """Login bei Heise SSO (email + password)."""
+    """Login bei Heise SSO (email + password).
+
+    Heise SSO hat Cookie-Banner + mehrstufigen Login. Bei Auto-Login-Fehler
+    auf manuellen Login warten.
+    """
     print("  🔑 Heise Login ...")
+
+    # Cookie-Banner ggf. schliessen
+    try:
+        cookie_btn = page.locator('button:has-text("Zustimmen"), button:has-text("Alle akzeptieren"), button:has-text("Akzeptieren")')
+        if cookie_btn.count() > 0:
+            cookie_btn.first.click(timeout=3000)
+            page.wait_for_timeout(1000)
+    except Exception:
+        pass
+
+    # Email-Feld (manchmal in iframe)
+    try:
+        page.wait_for_selector('input[name="email"], input[type="email"], input#username', timeout=8000)
+    except PlaywrightTimeout:
+        pass
 
     email_input = page.locator('input[name="email"], input[type="email"], input#username')
     if email_input.count() > 0:
-        email_input.first.fill(email)
-        page.wait_for_timeout(500)
+        try:
+            email_input.first.fill(email)
+            page.wait_for_timeout(500)
+        except Exception:
+            pass
 
     pw_input = page.locator('input[name="password"], input[type="password"]')
-    if pw_input.count() > 0:
+    try:
+        pw_input.first.wait_for(state="visible", timeout=5000)
         pw_input.first.fill(password)
         page.wait_for_timeout(500)
 
-    submit = page.locator('button[type="submit"], button:has-text("Anmelden"), button:has-text("Login")')
-    if submit.count() > 0:
-        submit.first.click()
-        page.wait_for_timeout(5000)
+        submit = page.locator('button[type="submit"], button:has-text("Anmelden"), button:has-text("Login")')
+        if submit.count() > 0:
+            submit.first.click()
+            page.wait_for_timeout(5000)
+    except PlaywrightTimeout:
+        print("  📱 Heise: Auto-Login nicht möglich")
+        print("  → Bitte manuell in Chrome Canary einloggen. Warte max. 120s ...")
+        try:
+            page.wait_for_url(
+                lambda u: "heise.de" in u and "anmelden" not in u and "login" not in u,
+                timeout=120000,
+            )
+        except PlaywrightTimeout:
+            print("  ❌ Heise Login Timeout")
+            return False
 
     if "anmelden" in page.url or "login" in page.url:
         print("  ❌ Heise Login fehlgeschlagen")

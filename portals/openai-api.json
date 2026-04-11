@@ -3,8 +3,8 @@
     "name": "OpenAI API",
     "homepage": "https://platform.openai.com",
     "billing_url": "https://platform.openai.com/settings/organization/billing/history",
-    "auth_check_url": "https://platform.openai.com/settings",
-    "auth_check_selector": "nav",
+    "auth_check_url": "https://platform.openai.com/settings/organization/billing/history",
+    "auth_check_selector": "a[href*='stripe.com'], h1:has-text('Billing')",
     "match_keywords": ["OPENAI"],
     "exclude_keywords": ["CHATGPT"],
     "invoices": {

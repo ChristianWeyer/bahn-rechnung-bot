@@ -143,23 +143,32 @@ def _check_detail_date(detail_text: str, entry_date: datetime, tolerance: int = 
 
 
 def _login_google(page, email: str, password: str) -> bool:
-    """Login bei Google Account (email -> password -> ggf. 2FA)."""
+    """Login bei Google Account (email -> password -> ggf. 2FA).
+
+    Bei frischem Browser-Profil kann Google einen "Account wählen" Screen
+    oder Captcha zeigen. Dann: auf manuellen Login warten.
+    """
     print("  🔑 Google Login ...")
 
     # Email eingeben
     email_input = page.locator('input[type="email"]')
+    auto_login_attempted = False
     if email_input.count() > 0:
-        email_input.first.fill(email)
-        page.wait_for_timeout(500)
-        next_btn = page.locator('button:has-text("Next"), button:has-text("Weiter"), #identifierNext button')
-        if next_btn.count() > 0:
-            next_btn.first.click()
-            page.wait_for_timeout(3000)
+        try:
+            email_input.first.fill(email)
+            page.wait_for_timeout(500)
+            next_btn = page.locator('button:has-text("Next"), button:has-text("Weiter"), #identifierNext button')
+            if next_btn.count() > 0:
+                next_btn.first.click()
+                page.wait_for_timeout(3000)
+            auto_login_attempted = True
+        except Exception:
+            pass
 
-    # Passwort eingeben
+    # Passwort eingeben (wenn Feld sichtbar)
     pw_input = page.locator('input[type="password"]')
     try:
-        pw_input.first.wait_for(state="visible", timeout=10000)
+        pw_input.first.wait_for(state="visible", timeout=8000)
         pw_input.first.fill(password)
         page.wait_for_timeout(500)
         next_btn = page.locator('button:has-text("Next"), button:has-text("Weiter"), #passwordNext button')
@@ -167,8 +176,17 @@ def _login_google(page, email: str, password: str) -> bool:
             next_btn.first.click()
             page.wait_for_timeout(5000)
     except PlaywrightTimeout:
-        print("  ⚠️ Passwort-Feld nicht sichtbar")
-        return False
+        # Auto-Login nicht möglich (Account-Picker, Captcha, etc.)
+        print("  📱 Google: Auto-Login nicht möglich (Account-Picker/Captcha)")
+        print("  → Bitte manuell in Chrome Canary einloggen. Warte max. 120s ...")
+        try:
+            page.wait_for_url(
+                lambda u: "pay.google.com" in u or ("myaccount.google.com" in u and "signin" not in u),
+                timeout=LOGIN_TIMEOUT,
+            )
+        except PlaywrightTimeout:
+            print("  ❌ Google Login Timeout")
+            return False
 
     # 2FA-Check
     if "challenge" in page.url or "signin/v2/challenge" in page.url:
@@ -183,7 +201,7 @@ def _login_google(page, email: str, password: str) -> bool:
             print("  ❌ Google Login Timeout")
             return False
 
-    if "signin" in page.url:
+    if "signin" in page.url and "pay.google.com" not in page.url:
         print("  ❌ Google Login fehlgeschlagen")
         return False
 

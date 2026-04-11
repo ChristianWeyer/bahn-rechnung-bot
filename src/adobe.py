@@ -19,24 +19,36 @@ BILLING_URL = "https://account.adobe.com/orders/billing-history"
 
 
 def _login_adobe(page, email: str, password: str) -> bool:
-    """Login bei Adobe (email + password, mit 2FA-Support)."""
+    """Login bei Adobe (email + password, mit 2FA-Support).
+
+    Adobe IMS hat mehrstufigen Login-Flow mit JavaScript-rendering.
+    Bei frischem Profil kann das Passwort-Feld nicht direkt sichtbar sein.
+    Fallback: auf manuellen Login warten.
+    """
     print("  🔑 Adobe Login ...")
 
-    # Email eingeben
+    # Email eingeben (mit grosszügigerem Warten fürs IMS-Rendering)
+    try:
+        page.wait_for_selector('input[name="username"], input[type="email"]', timeout=10000)
+    except PlaywrightTimeout:
+        pass
+
     email_input = page.locator('input[name="username"], input[type="email"]')
     if email_input.count() > 0:
-        email_input.first.fill(email)
-        page.wait_for_timeout(500)
-        # Continue-Button
-        cont_btn = page.locator('button:has-text("Continue"), button:has-text("Weiter"), button[type="submit"]')
-        if cont_btn.count() > 0:
-            cont_btn.first.click()
-            page.wait_for_timeout(3000)
+        try:
+            email_input.first.fill(email)
+            page.wait_for_timeout(800)
+            cont_btn = page.locator('button:has-text("Continue"), button:has-text("Weiter"), button[type="submit"]')
+            if cont_btn.count() > 0:
+                cont_btn.first.click()
+                page.wait_for_timeout(4000)
+        except Exception:
+            pass
 
     # Passwort eingeben
     pw_input = page.locator('input[name="password"], input[type="password"]')
     try:
-        pw_input.first.wait_for(state="visible", timeout=10000)
+        pw_input.first.wait_for(state="visible", timeout=8000)
         pw_input.first.fill(password)
         page.wait_for_timeout(500)
         submit = page.locator('button:has-text("Continue"), button:has-text("Anmelden"), button[type="submit"]')
@@ -44,8 +56,17 @@ def _login_adobe(page, email: str, password: str) -> bool:
             submit.first.click()
             page.wait_for_timeout(5000)
     except PlaywrightTimeout:
-        print("  ⚠️ Passwort-Feld nicht sichtbar")
-        return False
+        # Auto-Login nicht möglich — manuellen Login abwarten
+        print("  📱 Adobe: Auto-Login nicht möglich")
+        print("  → Bitte manuell in Chrome Canary einloggen. Warte max. 120s ...")
+        try:
+            page.wait_for_url(
+                lambda u: "account.adobe.com" in u and "signin" not in u and "auth" not in u,
+                timeout=120000,
+            )
+        except PlaywrightTimeout:
+            print("  ❌ Adobe Login Timeout")
+            return False
 
     # 2FA-Check
     if "challenge" in page.url or "mfa" in page.url or "verify" in page.url:
@@ -60,7 +81,7 @@ def _login_adobe(page, email: str, password: str) -> bool:
             print("  ❌ Adobe Login Timeout")
             return False
 
-    if "signin" in page.url or "auth" in page.url:
+    if "signin" in page.url or "auth.services.adobe.com" in page.url:
         print("  ❌ Adobe Login fehlgeschlagen")
         return False
 
